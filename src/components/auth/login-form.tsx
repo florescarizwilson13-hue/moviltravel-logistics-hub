@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { APP_ROLES } from "@/lib/auth/roles";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -19,6 +19,40 @@ export function LoginForm() {
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const nextPath = searchParams.get("next") || "/dashboard";
+
+  useEffect(() => {
+    let isMounted = true;
+    const hash = window.location.hash;
+
+    if (hash) {
+      const params = new URLSearchParams(hash.slice(1));
+      const tokenType = params.get("type");
+      const accessToken = params.get("access_token");
+
+      if (tokenType === "recovery" && accessToken) {
+        window.location.replace(`/reset-password${hash}`);
+        return;
+      }
+    }
+
+    async function redirectActiveSession() {
+      const supabase = createSupabaseBrowserClient();
+      const {
+        data: { user }
+      } = await supabase.auth.getUser();
+
+      if (isMounted && user) {
+        router.replace(nextPath);
+        router.refresh();
+      }
+    }
+
+    void redirectActiveSession();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [nextPath, router]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();

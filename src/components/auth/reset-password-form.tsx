@@ -7,6 +7,30 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 type ResetState = "checking" | "ready" | "invalid" | "success";
 
+function logRecoveryDebug(message: string, details: Record<string, unknown>) {
+  if (process.env.NODE_ENV !== "development") {
+    return;
+  }
+
+  console.debug(`[reset-password] ${message}`, details);
+}
+
+function getRecoveryParams() {
+  const hashParams = new URLSearchParams(window.location.hash.slice(1));
+  const searchParams = new URLSearchParams(window.location.search);
+  const source = window.location.hash ? "hash" : "search";
+  const params = window.location.hash ? hashParams : searchParams;
+
+  return {
+    source,
+    type: params.get("type"),
+    accessToken: params.get("access_token"),
+    refreshToken: params.get("refresh_token"),
+    code: searchParams.get("code"),
+    urlError: params.get("error") ?? params.get("error_code")
+  };
+}
+
 export function ResetPasswordForm() {
   const [state, setState] = useState<ResetState>("checking");
   const [password, setPassword] = useState("");
@@ -16,37 +40,61 @@ export function ResetPasswordForm() {
 
   useEffect(() => {
     async function prepareRecoverySession() {
-      const hash = window.location.hash;
-
-      if (!hash) {
-        setState("invalid");
-        return;
-      }
-
-      const params = new URLSearchParams(hash.slice(1));
-      const tokenType = params.get("type");
-      const accessToken = params.get("access_token");
-      const refreshToken = params.get("refresh_token");
-      const hashError = params.get("error") ?? params.get("error_code");
-
-      if (hashError || tokenType !== "recovery" || !accessToken || !refreshToken) {
-        setState("invalid");
-        return;
-      }
-
+      const { source, type, accessToken, refreshToken, code, urlError } = getRecoveryParams();
       const supabase = createSupabaseBrowserClient();
-      const { error: sessionError } = await supabase.auth.setSession({
-        access_token: accessToken,
-        refresh_token: refreshToken
+
+      logRecoveryDebug("recovery params received", {
+        source,
+        type,
+        hasAccessToken: Boolean(accessToken),
+        hasRefreshToken: Boolean(refreshToken),
+        hasCode: Boolean(code),
+        hasUrlError: Boolean(urlError)
       });
 
-      if (sessionError) {
+      if (urlError) {
         setState("invalid");
         return;
       }
 
-      window.history.replaceState(null, "", "/reset-password");
-      setState("ready");
+      if (accessToken && refreshToken && type === "recovery") {
+        const { error: sessionError } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken
+        });
+
+        logRecoveryDebug("setSession completed", {
+          errorMessage: sessionError?.message ?? null
+        });
+
+        if (sessionError) {
+          setState("invalid");
+          return;
+        }
+
+        window.history.replaceState(null, "", "/reset-password");
+        setState("ready");
+        return;
+      }
+
+      if (code) {
+        const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+
+        logRecoveryDebug("exchangeCodeForSession completed", {
+          errorMessage: exchangeError?.message ?? null
+        });
+
+        if (exchangeError) {
+          setState("invalid");
+          return;
+        }
+
+        window.history.replaceState(null, "", "/reset-password");
+        setState("ready");
+        return;
+      }
+
+      setState("invalid");
     }
 
     void prepareRecoverySession();

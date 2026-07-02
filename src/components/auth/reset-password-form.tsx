@@ -6,6 +6,21 @@ import { Button } from "@/components/ui/button";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 type ResetState = "checking" | "ready" | "invalid" | "success";
+type RecoveryDiagnostic = {
+  hasCode: boolean;
+  hasAccessToken: boolean;
+  hasRefreshToken: boolean;
+  hasSession: boolean;
+  supabaseError: string | null;
+};
+
+const initialDiagnostic: RecoveryDiagnostic = {
+  hasCode: false,
+  hasAccessToken: false,
+  hasRefreshToken: false,
+  hasSession: false,
+  supabaseError: null
+};
 
 function logRecoveryDebug(message: string, details: Record<string, unknown>) {
   if (process.env.NODE_ENV !== "development") {
@@ -18,17 +33,41 @@ function logRecoveryDebug(message: string, details: Record<string, unknown>) {
 function getRecoveryParams() {
   const hashParams = new URLSearchParams(window.location.hash.slice(1));
   const searchParams = new URLSearchParams(window.location.search);
-  const source = window.location.hash ? "hash" : "search";
-  const params = window.location.hash ? hashParams : searchParams;
 
   return {
-    source,
-    type: params.get("type"),
-    accessToken: params.get("access_token"),
-    refreshToken: params.get("refresh_token"),
+    type: hashParams.get("type") ?? searchParams.get("type"),
+    accessToken: hashParams.get("access_token") ?? searchParams.get("access_token"),
+    refreshToken: hashParams.get("refresh_token") ?? searchParams.get("refresh_token"),
     code: searchParams.get("code"),
-    urlError: params.get("error") ?? params.get("error_code")
+    urlError:
+      hashParams.get("error") ??
+      hashParams.get("error_code") ??
+      searchParams.get("error") ??
+      searchParams.get("error_code")
   };
+}
+
+function shortenMessage(message: string | null | undefined) {
+  if (!message) {
+    return null;
+  }
+
+  return message.length > 140 ? `${message.slice(0, 137)}...` : message;
+}
+
+function RecoveryDiagnosticPanel({ diagnostic }: { diagnostic: RecoveryDiagnostic }) {
+  return (
+    <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+      <p className="font-medium">Diagnóstico temporal recuperación</p>
+      <ul className="mt-2 space-y-1">
+        <li>code presente: {diagnostic.hasCode ? "sí" : "no"}</li>
+        <li>access_token presente: {diagnostic.hasAccessToken ? "sí" : "no"}</li>
+        <li>refresh_token presente: {diagnostic.hasRefreshToken ? "sí" : "no"}</li>
+        <li>sesión detectada: {diagnostic.hasSession ? "sí" : "no"}</li>
+        <li>error Supabase: {diagnostic.supabaseError ?? "sin error"}</li>
+      </ul>
+    </div>
+  );
 }
 
 export function ResetPasswordForm() {
@@ -36,64 +75,92 @@ export function ResetPasswordForm() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [diagnostic, setDiagnostic] = useState<RecoveryDiagnostic>(initialDiagnostic);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     async function prepareRecoverySession() {
-      const { source, type, accessToken, refreshToken, code, urlError } = getRecoveryParams();
+      const { type, accessToken, refreshToken, code, urlError } = getRecoveryParams();
       const supabase = createSupabaseBrowserClient();
-
-      logRecoveryDebug("recovery params received", {
-        source,
-        type,
+      const nextDiagnostic: RecoveryDiagnostic = {
+        hasCode: Boolean(code),
         hasAccessToken: Boolean(accessToken),
         hasRefreshToken: Boolean(refreshToken),
-        hasCode: Boolean(code),
+        hasSession: false,
+        supabaseError: shortenMessage(urlError)
+      };
+
+      logRecoveryDebug("recovery params received", {
+        type,
+        hasAccessToken: nextDiagnostic.hasAccessToken,
+        hasRefreshToken: nextDiagnostic.hasRefreshToken,
+        hasCode: nextDiagnostic.hasCode,
         hasUrlError: Boolean(urlError)
       });
 
-      if (urlError) {
-        setState("invalid");
-        return;
-      }
-
-      if (accessToken && refreshToken && type === "recovery") {
-        const { error: sessionError } = await supabase.auth.setSession({
-          access_token: accessToken,
-          refresh_token: refreshToken
-        });
-
-        logRecoveryDebug("setSession completed", {
-          errorMessage: sessionError?.message ?? null
-        });
-
-        if (sessionError) {
-          setState("invalid");
-          return;
-        }
-
-        window.history.replaceState(null, "", "/reset-password");
-        setState("ready");
-        return;
-      }
+      let sessionErrorMessage = nextDiagnostic.supabaseError;
 
       if (code) {
         const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+        sessionErrorMessage = shortenMessage(exchangeError?.message) ?? sessionErrorMessage;
 
         logRecoveryDebug("exchangeCodeForSession completed", {
-          errorMessage: exchangeError?.message ?? null
+          errorMessage: sessionErrorMessage
         });
+      }
 
-        if (exchangeError) {
-          setState("invalid");
-          return;
-        }
+      const {
+        data: { session: currentSession },
+        error: currentSessionError
+      } = await supabase.auth.getSession();
+      sessionErrorMessage = shortenMessage(currentSessionError?.message) ?? sessionErrorMessage;
 
+      if (currentSession) {
+        setDiagnostic({
+          ...nextDiagnostic,
+          hasSession: true,
+          supabaseError: sessionErrorMessage
+        });
         window.history.replaceState(null, "", "/reset-password");
         setState("ready");
         return;
       }
 
+      if (accessToken && refreshToken) {
+        const { error: setSessionError } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken
+        });
+        sessionErrorMessage = shortenMessage(setSessionError?.message) ?? sessionErrorMessage;
+
+        logRecoveryDebug("setSession completed", {
+          errorMessage: sessionErrorMessage
+        });
+
+        const {
+          data: { session: sessionAfterSetSession },
+          error: sessionAfterSetSessionError
+        } = await supabase.auth.getSession();
+        sessionErrorMessage =
+          shortenMessage(sessionAfterSetSessionError?.message) ?? sessionErrorMessage;
+
+        if (sessionAfterSetSession) {
+          setDiagnostic({
+            ...nextDiagnostic,
+            hasSession: true,
+            supabaseError: sessionErrorMessage
+          });
+          window.history.replaceState(null, "", "/reset-password");
+          setState("ready");
+          return;
+        }
+      }
+
+      setDiagnostic({
+        ...nextDiagnostic,
+        hasSession: false,
+        supabaseError: sessionErrorMessage
+      });
       setState("invalid");
     }
 
@@ -140,6 +207,7 @@ export function ResetPasswordForm() {
     return (
       <section className="rounded-lg border bg-card p-6 text-sm shadow-sm">
         Validando enlace de recuperación...
+        <RecoveryDiagnosticPanel diagnostic={diagnostic} />
       </section>
     );
   }
@@ -151,6 +219,7 @@ export function ResetPasswordForm() {
         <p className="mt-2 text-sm text-muted-foreground">
           El enlace venció. Solicita un nuevo correo de recuperación.
         </p>
+        <RecoveryDiagnosticPanel diagnostic={diagnostic} />
         <Link
           href="/login"
           className="mt-5 inline-flex h-10 items-center justify-center rounded-md border border-input bg-white px-4 text-sm font-medium hover:bg-muted"
@@ -186,6 +255,7 @@ export function ResetPasswordForm() {
         <p className="mt-2 text-sm text-muted-foreground">
           Ingresa una nueva contraseña para recuperar el acceso a la plataforma.
         </p>
+        <RecoveryDiagnosticPanel diagnostic={diagnostic} />
       </div>
 
       <div className="space-y-4">

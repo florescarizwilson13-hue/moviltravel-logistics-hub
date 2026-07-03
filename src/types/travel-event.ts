@@ -2,7 +2,8 @@ export type TravelEventType =
   | "driver_at_pickup"
   | "passenger_on_board"
   | "completed"
-  | "incident";
+  | "incident"
+  | "manual_correction";
 
 export type TravelEvent = {
   id: string;

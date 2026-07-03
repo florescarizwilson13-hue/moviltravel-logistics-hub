@@ -6,6 +6,7 @@ import { Check, Copy } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useLocalLogisticsStore } from "@/hooks/use-local-logistics-store";
+import { TRANSFER_REQUEST_STATUS_LABELS } from "@/lib/constants/statuses";
 import { copyTextToClipboard } from "@/utils/clipboard";
 import {
   getTransferRequestDisplaySummary,
@@ -236,6 +237,43 @@ export function RequestDetailView({ requestId }: { requestId: string }) {
 
       setStore(snapshotWithEvent);
       setNotice("Hito del viaje registrado manualmente.");
+    });
+  }
+
+  async function handleManualTravelCorrection(input: ManualTravelCorrectionInput) {
+    if (!store || !request) {
+      return;
+    }
+
+    const correctionNote = input.note.trim();
+
+    if (!correctionNote) {
+      setNotice(null);
+      setError("Ingresa una nota para registrar la corrección.");
+      return;
+    }
+
+    await runRequestAction(async () => {
+      const requestInput = buildRequestStatusUpdateInput(request, input.status);
+      const snapshotWithStatus = await repositories.transferRequests.update(
+        store,
+        request.id,
+        requestInput
+      );
+      const snapshotWithEvent = await repositories.travelEvents.create(snapshotWithStatus, {
+        transferRequestId: request.id,
+        type: "manual_correction",
+        source: "manual",
+        actorType: "coordinator",
+        actorName: "Coordinación",
+        actorPhone: null,
+        messageBody: `Nuevo estado: ${TRANSFER_REQUEST_STATUS_LABELS[input.status]}. Nota: ${correctionNote}`,
+        latitude: null,
+        longitude: null
+      });
+
+      setStore(snapshotWithEvent);
+      setNotice("Seguimiento corregido manualmente.");
     });
   }
 
@@ -533,6 +571,7 @@ export function RequestDetailView({ requestId }: { requestId: string }) {
         messages={requestMessages}
         isSaving={isSaving}
         onManualEvent={handleManualTravelEvent}
+        onManualCorrection={handleManualTravelCorrection}
       />
 
       {isAssigned ? (
@@ -551,7 +590,8 @@ function TravelTrackingHistory({
   assignedDriver,
   messages,
   isSaving,
-  onManualEvent
+  onManualEvent,
+  onManualCorrection
 }: {
   request: TransferRequest;
   events: TravelEvent[];
@@ -559,10 +599,29 @@ function TravelTrackingHistory({
   messages: RequestMessage[];
   isSaving: boolean;
   onManualEvent: (input: ManualTravelEventAction) => void;
+  onManualCorrection: (input: ManualTravelCorrectionInput) => Promise<void> | void;
 }) {
+  const [isCorrectionOpen, setIsCorrectionOpen] = useState(false);
+  const [correctionStatus, setCorrectionStatus] =
+    useState<ManualTravelCorrectionStatus>("assigned");
+  const [correctionNote, setCorrectionNote] = useState("");
   const steps = buildTravelTimelineSteps({ request, events, assignedDriver, messages });
   const hasIncident = steps.some((step) => step.kind === "incident" && step.status === "done");
   const actions = getManualTravelActions(request.status);
+  const canSubmitCorrection = correctionNote.trim().length > 0;
+
+  async function handleCorrectionSubmit() {
+    if (!canSubmitCorrection) {
+      return;
+    }
+
+    await onManualCorrection({
+      status: correctionStatus,
+      note: correctionNote
+    });
+    setIsCorrectionOpen(false);
+    setCorrectionNote("");
+  }
 
   return (
     <section
@@ -602,9 +661,72 @@ function TravelTrackingHistory({
           ))}
         </div>
       ) : null}
+      <div className="mt-4">
+        <Button
+          type="button"
+          className="border border-input bg-white text-foreground hover:bg-muted"
+          disabled={isSaving}
+          onClick={() => setIsCorrectionOpen((isOpen) => !isOpen)}
+        >
+          Corregir seguimiento
+        </Button>
+      </div>
+      {isCorrectionOpen ? (
+        <div className="mt-4 rounded-md border bg-white p-4">
+          <div className="grid gap-3 md:grid-cols-[220px_1fr]">
+            <label className="text-sm font-medium">
+              Estado correcto
+              <select
+                className="mt-1 w-full rounded-md border bg-white px-3 py-2 text-sm"
+                value={correctionStatus}
+                disabled={isSaving}
+                onChange={(event) =>
+                  setCorrectionStatus(event.target.value as ManualTravelCorrectionStatus)
+                }
+              >
+                {manualTravelCorrectionStatuses.map((status) => (
+                  <option key={status} value={status}>
+                    {getManualTravelCorrectionStatusLabel(status)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-sm font-medium">
+              Nota de corrección
+              <textarea
+                className="mt-1 min-h-24 w-full rounded-md border px-3 py-2 text-sm"
+                value={correctionNote}
+                disabled={isSaving}
+                placeholder="Ej: Conductor marcó finalizado por error"
+                onChange={(event) => setCorrectionNote(event.target.value)}
+              />
+            </label>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button
+              type="button"
+              disabled={isSaving || !canSubmitCorrection}
+              onClick={handleCorrectionSubmit}
+            >
+              {isSaving ? "Corrigiendo..." : "Confirmar corrección"}
+            </Button>
+            <Button
+              type="button"
+              className="border border-input bg-white text-foreground hover:bg-muted"
+              disabled={isSaving}
+              onClick={() => {
+                setIsCorrectionOpen(false);
+                setCorrectionNote("");
+              }}
+            >
+              Cancelar
+            </Button>
+          </div>
+        </div>
+      ) : null}
       <div className="mt-4 space-y-3">
         {steps.map((step) => (
-          <TravelTimelineStep key={step.kind} step={step} />
+          <TravelTimelineStep key={step.key} step={step} />
         ))}
       </div>
     </section>
@@ -613,7 +735,7 @@ function TravelTrackingHistory({
 
 type ManualTravelEventAction = {
   label: string;
-  eventType: TravelEvent["type"];
+  eventType: Exclude<TravelEvent["type"], "manual_correction">;
   nextStatus: Extract<
     TransferRequestStatus,
     "driver_at_pickup" | "passenger_on_board" | "completed" | "incident"
@@ -621,13 +743,25 @@ type ManualTravelEventAction = {
   messageBody: string;
 };
 
+type ManualTravelCorrectionStatus = Extract<
+  TransferRequestStatus,
+  "assigned" | "driver_at_pickup" | "passenger_on_board" | "completed" | "incident"
+>;
+
+type ManualTravelCorrectionInput = {
+  status: ManualTravelCorrectionStatus;
+  note: string;
+};
+
 type TravelTimelineStep = {
+  key: string;
   kind: "assigned" | TravelEvent["type"];
   title: string;
   status: "done" | "pending";
   occurredAt?: string | null;
   actor?: string | null;
   source?: string | null;
+  detail?: string | null;
   isIncident?: boolean;
 };
 
@@ -661,11 +795,18 @@ function TravelTimelineStep({ step }: { step: TravelTimelineStep }) {
       >
         <p className="font-medium">{step.title}</p>
         {step.status === "done" ? (
-          <p className="mt-1 text-muted-foreground">
-            {[step.occurredAt ? formatCommunicationDate(step.occurredAt) : null, step.actor, step.source]
-              .filter(Boolean)
-              .join(" · ")}
-          </p>
+          <>
+            <p className="mt-1 text-muted-foreground">
+              {[
+                step.occurredAt ? formatCommunicationDate(step.occurredAt) : null,
+                step.actor,
+                step.source
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+            {step.detail ? <p className="mt-1 text-muted-foreground">{step.detail}</p> : null}
+          </>
         ) : (
           <p className="mt-1 text-muted-foreground">Pendiente</p>
         )}
@@ -933,6 +1074,9 @@ function buildTravelTimelineSteps({
   const passengerOnBoard = getTravelEventByType(events, "passenger_on_board");
   const completed = getTravelEventByType(events, "completed");
   const incident = getTravelEventByType(events, "incident");
+  const correctionEvents = [...events]
+    .filter((event) => event.type === "manual_correction")
+    .sort((first, second) => first.createdAt.localeCompare(second.createdAt));
   const assignmentMessage = [...messages]
     .filter((message) => message.template === "driver_assignment")
     .sort((first, second) => first.createdAt.localeCompare(second.createdAt))[0];
@@ -941,6 +1085,7 @@ function buildTravelTimelineSteps({
 
   const steps: TravelTimelineStep[] = [
     {
+      key: "assigned",
       kind: "assigned",
       title: "Traslado asignado",
       status: isTravelStepDone(request, "assigned") ? "done" : "pending",
@@ -983,6 +1128,19 @@ function buildTravelTimelineSteps({
       })
     );
   }
+
+  correctionEvents.forEach((event) => {
+    steps.push({
+      key: `manual_correction-${event.id}`,
+      kind: "manual_correction",
+      title: "Corrección manual",
+      status: "done",
+      occurredAt: event.createdAt,
+      actor: event.actorName ?? "Coordinación",
+      source: getTravelEventSourceLabel(event.source),
+      detail: event.messageBody
+    });
+  });
 
   return steps;
 }
@@ -1079,6 +1237,7 @@ function buildTravelEventStep({
   const isDone = Boolean(event) || isTravelStepDone(request, kind);
 
   return {
+    key: kind,
     kind,
     title,
     status: isDone ? "done" : "pending",
@@ -1126,10 +1285,31 @@ function getTravelEventLabel(type: TravelEvent["type"]) {
     driver_at_pickup: "Conductor llegó al origen",
     passenger_on_board: "Pasajero a bordo",
     completed: "Servicio finalizado",
-    incident: "Incidencia reportada"
+    incident: "Incidencia reportada",
+    manual_correction: "Corrección manual"
   };
 
   return labels[type];
+}
+
+const manualTravelCorrectionStatuses: ManualTravelCorrectionStatus[] = [
+  "assigned",
+  "driver_at_pickup",
+  "passenger_on_board",
+  "completed",
+  "incident"
+];
+
+function getManualTravelCorrectionStatusLabel(status: ManualTravelCorrectionStatus) {
+  const labels: Record<ManualTravelCorrectionStatus, string> = {
+    assigned: "Traslado asignado",
+    driver_at_pickup: "Conductor en origen",
+    passenger_on_board: "Pasajero a bordo / En traslado",
+    completed: "Servicio finalizado",
+    incident: "Incidencia"
+  };
+
+  return labels[status];
 }
 
 function formatCommunicationDate(value: string) {

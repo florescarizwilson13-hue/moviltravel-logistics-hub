@@ -56,6 +56,9 @@ const driverCurrentTripPatterns = [/^actual$/i, /^viaje$/i, /^mi\s+viaje$/i];
 const driverChangeTripPatterns = [/^cambiar$/i, /^cambiar\s+viaje$/i, /^otro\s+viaje$/i];
 const selectingTripTtlMinutes = 10;
 const selectedTripTtlHours = 12;
+const operableTripsPastWindowHours = 2;
+const operableTripsFutureWindowHours = 12;
+const maxDriverTripsShown = 5;
 const newTransferIntentPatterns = [
   /\bnecesito\s+(?:un\s+)?traslado\b/i,
   /\bnuevo\s+traslado\b/i,
@@ -364,6 +367,19 @@ async function listActiveTransfersForDriver(
   return ((data ?? []) as ActiveDriverTransferRow[]).sort(compareTransfersByProximity);
 }
 
+async function listOperableTransfersForDriver(
+  supabase: Awaited<ReturnType<typeof createTrustedSupabaseClient>>,
+  driverId: string
+) {
+  const trips = await listActiveTransfersForDriver(supabase, driverId);
+  const operableTrips = trips.filter(isOperableDriverTrip).sort(compareTransfersBySchedule);
+
+  return {
+    trips: operableTrips,
+    hasMore: operableTrips.length > maxDriverTripsShown
+  };
+}
+
 async function getDriverWhatsappSession(
   supabase: Awaited<ReturnType<typeof createTrustedSupabaseClient>>,
   driverId: string,
@@ -399,9 +415,9 @@ async function showDriverTripsForSelection(
   driverId: string,
   whatsappFrom: string
 ) {
-  const trips = await listActiveTransfersForDriver(supabase, driverId);
+  const result = await listOperableTransfersForDriver(supabase, driverId);
 
-  if (trips.length === 0) {
+  if (result.trips.length === 0) {
     await upsertDriverWhatsappSession(supabase, {
       driverId,
       whatsappFrom,
@@ -414,16 +430,18 @@ async function showDriverTripsForSelection(
     return { status: "none" as const };
   }
 
+  const visibleTrips = result.trips.slice(0, maxDriverTripsShown);
+
   await upsertDriverWhatsappSession(supabase, {
     driverId,
     whatsappFrom,
     mode: "selecting_trip",
     selectedTransferRequestId: null,
-    availableTransferRequestIds: trips.map((trip) => trip.id),
+    availableTransferRequestIds: visibleTrips.map((trip) => trip.id),
     expiresAt: getFutureIso({ minutes: selectingTripTtlMinutes })
   });
 
-  return { status: "list" as const, trips };
+  return { status: "list" as const, trips: visibleTrips, hasMore: result.hasMore };
 }
 
 async function selectDriverTripFromSession(
@@ -604,20 +622,20 @@ function parseDriverCommand(body: string): DriverCommand | null {
 function buildTripsListResult(
   result:
     | { status: "none" }
-    | { status: "list"; trips: ActiveDriverTransferRow[] }
+    | { status: "list"; trips: ActiveDriverTransferRow[]; hasMore: boolean }
 ): WhatsappInboundResult {
   if (result.status === "none") {
     return {
       requestId: null,
       analysis: null,
-      reply: "No tienes viajes activos o próximos asignados en este momento."
+      reply: "No tienes viajes operables cercanos en este momento."
     };
   }
 
   return {
     requestId: null,
     analysis: null,
-    reply: buildDriverTripsListReply(result.trips)
+    reply: buildDriverTripsListReply(result.trips, result.hasMore)
   };
 }
 
@@ -626,7 +644,9 @@ function buildTripSelectionResult(
     | { status: "selected"; request: ActiveDriverTransferRow }
     | {
         status: "invalid";
-        tripsResult: { status: "none" } | { status: "list"; trips: ActiveDriverTransferRow[] };
+        tripsResult:
+          | { status: "none" }
+          | { status: "list"; trips: ActiveDriverTransferRow[]; hasMore: boolean };
       }
 ): WhatsappInboundResult {
   if (result.status === "invalid") {
@@ -667,14 +687,17 @@ function buildCurrentTripResult(
   };
 }
 
-function buildDriverTripsListReply(trips: ActiveDriverTransferRow[]) {
+function buildDriverTripsListReply(trips: ActiveDriverTransferRow[], hasMore = false) {
   const tripLines = trips.map((trip, index) =>
     [`${index + 1}) ${formatDriverTripListHeading(trip)}`, formatDriverTripRoute(trip)].join("\n")
   );
+  const extraMessage = hasMore
+    ? "\n\nHay más viajes asignados. Contacta a coordinación si no ves el que necesitas."
+    : "";
 
   return `Tus viajes disponibles:\n\n${tripLines.join(
     "\n\n"
-  )}\n\nResponde el número del viaje que vas a operar.`;
+  )}${extraMessage}\n\nResponde el número del viaje que vas a operar.`;
 }
 
 function formatDriverTripListHeading(request: ActiveDriverTransferRow) {
@@ -819,6 +842,28 @@ function getFutureIso(duration: { minutes?: number; hours?: number }) {
 
 function normalizeWhatsappPhone(value: string | undefined) {
   return normalizeChileanPhone(normalizeWhatsappAddress(value));
+}
+
+function isOperableDriverTrip(request: ActiveDriverTransferRow) {
+  if (["driver_at_pickup", "passenger_on_board", "incident"].includes(request.status)) {
+    return true;
+  }
+
+  const scheduleTime = getTransferScheduleTime(request);
+
+  if (!scheduleTime) {
+    return false;
+  }
+
+  const now = Date.now();
+  const windowStart = now - operableTripsPastWindowHours * 60 * 60 * 1000;
+  const windowEnd = now + operableTripsFutureWindowHours * 60 * 60 * 1000;
+
+  return scheduleTime >= windowStart && scheduleTime <= windowEnd;
+}
+
+function compareTransfersBySchedule(first: ActiveDriverTransferRow, second: ActiveDriverTransferRow) {
+  return getTransferScheduleTime(first) - getTransferScheduleTime(second);
 }
 
 function compareTransfersByProximity(first: ActiveDriverTransferRow, second: ActiveDriverTransferRow) {

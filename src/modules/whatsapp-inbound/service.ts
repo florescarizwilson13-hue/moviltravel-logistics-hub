@@ -93,7 +93,10 @@ export async function processWhatsappInboundMessage(
     && !shouldCreateNewRequest
     ? mergeRequestWithCapturedData(existingRequest, analysis.capturedData, payload)
     : withWhatsappContext(analysis.capturedData, payload);
-  const request = buildTransferRequestDraft(requestInput);
+  const request = buildTransferRequestDraft({
+    ...requestInput,
+    status: undefined
+  });
   const metadata = buildWhatsappMetadata({
     previousMetadata: shouldCreateNewRequest ? undefined : existingRequest?.metadata,
     payload,

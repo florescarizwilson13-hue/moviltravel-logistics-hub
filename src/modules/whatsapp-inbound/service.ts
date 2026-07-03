@@ -883,7 +883,11 @@ function isOperableDriverTrip(request: ActiveDriverTransferRow) {
   const windowStart = now - operableTripsPastWindowHours * 60 * 60 * 1000;
   const windowEnd = now + operableTripsFutureWindowHours * 60 * 60 * 1000;
 
-  return scheduleTime >= windowStart && scheduleTime <= windowEnd;
+  if (scheduleTime >= windowStart && scheduleTime <= windowEnd) {
+    return true;
+  }
+
+  return request.status === "assigned" && scheduleTime >= windowStart && isTodayOrTomorrowTrip(request);
 }
 
 function compareTransfersBySchedule(first: ActiveDriverTransferRow, second: ActiveDriverTransferRow) {
@@ -910,6 +914,52 @@ function getTransferScheduleTime(request: ActiveDriverTransferRow) {
 
 function getTransferScheduleKey(request: ActiveDriverTransferRow) {
   return request.pickup_at ?? `${request.pickup_date ?? ""} ${request.pickup_time ?? ""}`.trim();
+}
+
+function isTodayOrTomorrowTrip(request: ActiveDriverTransferRow) {
+  const serviceDateKey = getTransferServiceDateKey(request);
+
+  if (!serviceDateKey) {
+    return false;
+  }
+
+  const today = getChileDateKey(new Date());
+  const tomorrow = getChileDateKey(addDays(new Date(), 1));
+
+  return serviceDateKey === today || serviceDateKey === tomorrow;
+}
+
+function getTransferServiceDateKey(request: ActiveDriverTransferRow) {
+  if (request.pickup_date) {
+    return request.pickup_date.slice(0, 10);
+  }
+
+  if (!request.pickup_at) {
+    return null;
+  }
+
+  const date = new Date(request.pickup_at);
+  return Number.isNaN(date.getTime()) ? null : getChileDateKey(date);
+}
+
+function addDays(date: Date, days: number) {
+  const nextDate = new Date(date);
+  nextDate.setDate(nextDate.getDate() + days);
+  return nextDate;
+}
+
+function getChileDateKey(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    timeZone: "America/Santiago"
+  }).formatToParts(date);
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
+
+  return year && month && day ? `${year}-${month}-${day}` : "";
 }
 
 function formatCurrentWhatsappTime() {

@@ -1289,7 +1289,15 @@ const travelStatusOrder: string[] = [
 ];
 
 function getTravelEventSourceLabel(source: TravelEvent["source"]) {
-  return source === "whatsapp_driver" ? "WhatsApp conductor" : "Manual";
+  if (source === "whatsapp_driver") {
+    return "WhatsApp conductor";
+  }
+
+  if (source === "driver_panel") {
+    return "Panel conductor";
+  }
+
+  return "Manual";
 }
 
 function getTravelEventLabel(type: TravelEvent["type"]) {

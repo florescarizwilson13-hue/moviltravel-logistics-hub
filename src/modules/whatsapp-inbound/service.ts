@@ -222,7 +222,6 @@ function withWhatsappContext(
   capturedData: CreateTransferRequestInput,
   payload: TwilioWhatsappInboundPayload
 ): CreateTransferRequestInput {
-  const whatsappPhone = normalizeWhatsappAddress(payload.From);
   const sourceLines = [
     "Origen solicitud: WhatsApp Twilio Sandbox",
     payload.ProfileName ? `Perfil WhatsApp: ${payload.ProfileName}` : null,
@@ -232,8 +231,6 @@ function withWhatsappContext(
 
   return {
     ...capturedData,
-    requesterName: capturedData.requesterName ?? payload.ProfileName ?? null,
-    requesterPhone: capturedData.requesterPhone ?? whatsappPhone ?? null,
     notes: sourceLines.join("\n")
   };
 }
@@ -244,7 +241,7 @@ function mergeRequestWithCapturedData(
   payload: TwilioWhatsappInboundPayload
 ): CreateTransferRequestInput {
   const existingData = mapTransferRequestRowToInput(existingRequest);
-  const nextData = mergeEmptyFields(existingData, capturedData);
+  const nextData = mergeEmptyFields(existingData, capturedData, existingRequest);
   const withContext = withWhatsappContext(nextData, payload);
 
   return {
@@ -279,15 +276,30 @@ function mapTransferRequestRowToInput(row: TransferRequestIntakeRow): CreateTran
 
 function mergeEmptyFields(
   existingData: CreateTransferRequestInput,
-  capturedData: CreateTransferRequestInput
+  capturedData: CreateTransferRequestInput,
+  existingRequest?: TransferRequestIntakeRow
 ) {
   const shouldReplaceDateTime = Boolean(capturedData.pickupDate || capturedData.pickupTime);
+  const shouldReplaceRequesterName = shouldUseCapturedRequesterName(
+    existingData.requesterName,
+    capturedData.requesterName,
+    existingRequest
+  );
+  const shouldReplaceRequesterPhone = shouldUseCapturedRequesterPhone(
+    existingData.requesterPhone,
+    capturedData.requesterPhone,
+    existingRequest
+  );
 
   return {
     ...existingData,
     companyName: pickExistingOrCaptured(existingData.companyName, capturedData.companyName),
-    requesterName: pickExistingOrCaptured(existingData.requesterName, capturedData.requesterName),
-    requesterPhone: pickExistingOrCaptured(existingData.requesterPhone, capturedData.requesterPhone),
+    requesterName: shouldReplaceRequesterName
+      ? capturedData.requesterName ?? existingData.requesterName
+      : pickExistingOrCaptured(existingData.requesterName, capturedData.requesterName),
+    requesterPhone: shouldReplaceRequesterPhone
+      ? capturedData.requesterPhone ?? existingData.requesterPhone
+      : pickExistingOrCaptured(existingData.requesterPhone, capturedData.requesterPhone),
     requesterEmail: pickExistingOrCaptured(existingData.requesterEmail, capturedData.requesterEmail),
     passengerName: pickExistingOrCaptured(existingData.passengerName, capturedData.passengerName),
     passengerPhone: pickExistingOrCaptured(existingData.passengerPhone, capturedData.passengerPhone),
@@ -322,6 +334,72 @@ function mergeEmptyFields(
 
 function pickExistingOrCaptured<T>(existingValue: T | null | undefined, capturedValue: T | null | undefined) {
   return isEmpty(existingValue) ? capturedValue ?? null : existingValue;
+}
+
+function shouldUseCapturedRequesterName(
+  existingValue: string | null | undefined,
+  capturedValue: string | null | undefined,
+  existingRequest: TransferRequestIntakeRow | undefined
+) {
+  if (!capturedValue) {
+    return false;
+  }
+
+  if (!existingValue) {
+    return true;
+  }
+
+  const profileName = getMetadataString(existingRequest?.metadata, [
+    "whatsapp_profile_name",
+    "profileName"
+  ]);
+
+  return (
+    normalizeComparable(existingValue) === normalizeComparable(profileName) ||
+    isMoreCompleteName(existingValue, capturedValue)
+  );
+}
+
+function shouldUseCapturedRequesterPhone(
+  existingValue: string | null | undefined,
+  capturedValue: string | null | undefined,
+  existingRequest: TransferRequestIntakeRow | undefined
+) {
+  if (!capturedValue) {
+    return false;
+  }
+
+  if (!existingValue) {
+    return true;
+  }
+
+  const whatsappFrom = getMetadataString(existingRequest?.metadata, ["whatsapp_from", "from"]);
+  return normalizePhone(existingValue) === normalizePhone(whatsappFrom);
+}
+
+function getMetadataString(
+  metadata: Record<string, unknown> | undefined,
+  keys: string[]
+) {
+  for (const key of keys) {
+    const value = metadata?.[key];
+
+    if (typeof value === "string" && value.trim()) {
+      return value;
+    }
+  }
+
+  return "";
+}
+
+function isMoreCompleteName(existingValue: string, capturedValue: string) {
+  const existing = normalizeComparable(existingValue);
+  const captured = normalizeComparable(capturedValue);
+  return captured.startsWith(`${existing} `) && captured.split(/\s+/).length > existing.split(/\s+/).length;
+}
+
+function normalizePhone(value: string | null | undefined) {
+  return value?.replace(/\D/g, "") ?? "";
 }
 
 function appendUniqueNotes(existingNotes: string | null | undefined, nextNotes: string | null | undefined) {

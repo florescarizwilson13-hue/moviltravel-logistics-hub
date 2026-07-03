@@ -13,6 +13,8 @@ import type { LogisticsRepositories, LogisticsSnapshot } from "../types";
 import type {
   CreateDriverInput,
   CreateTransferRequestInput,
+  CommunicationEvent,
+  CreateCommunicationEventInput,
   Driver,
   DriverAvailability,
   GeneratedWhatsappMessage,
@@ -77,6 +79,19 @@ type RequestMessageRow = {
   updated_at: string;
 };
 
+type CommunicationEventRow = {
+  id: string;
+  transfer_request_id: string;
+  type: CommunicationEvent["type"];
+  channel: CommunicationEvent["channel"];
+  recipient_type: CommunicationEvent["recipientType"];
+  recipient_name: string | null;
+  recipient_phone: string | null;
+  message_body: string | null;
+  created_by: string | null;
+  created_at: string;
+};
+
 const driverSelect =
   "id, full_name, phone, email, license_number, vehicle_name, vehicle_plate, vehicle_capacity, availability, is_seed, notes, created_at, updated_at";
 
@@ -85,6 +100,9 @@ const transferRequestSelect =
 
 const requestMessageSelect =
   "id, transfer_request_id, channel, template, recipient_name, recipient_phone, body, status, metadata, created_at, updated_at";
+
+const communicationEventSelect =
+  "id, transfer_request_id, type, channel, recipient_type, recipient_name, recipient_phone, message_body, created_by, created_at";
 
 function notImplemented(operation: string): never {
   throw new Error(
@@ -168,6 +186,21 @@ function mapRequestMessageRow(row: RequestMessageRow): RequestMessage {
     metadata: row.metadata ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at
+  };
+}
+
+function mapCommunicationEventRow(row: CommunicationEventRow): CommunicationEvent {
+  return {
+    id: row.id,
+    transferRequestId: row.transfer_request_id,
+    type: row.type,
+    channel: row.channel,
+    recipientType: row.recipient_type,
+    recipientName: row.recipient_name,
+    recipientPhone: row.recipient_phone,
+    messageBody: row.message_body,
+    createdBy: row.created_by,
+    createdAt: row.created_at
   };
 }
 
@@ -317,6 +350,33 @@ async function listSupabaseRequestMessagesByRequest(requestId: string) {
   return (data ?? []).map((row) => mapRequestMessageRow(row as RequestMessageRow));
 }
 
+async function listSupabaseCommunicationEvents() {
+  const supabase = createSupabaseBrowserClient();
+  const { data, error } = await supabase
+    .from("communication_events")
+    .select(communicationEventSelect)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    throw formatSupabaseError("listar historial de comunicaciones", error);
+  }
+
+  return (data ?? []).map((row) => mapCommunicationEventRow(row as CommunicationEventRow));
+}
+
+function mapCommunicationEventForInsert(input: CreateCommunicationEventInput) {
+  return {
+    transfer_request_id: input.transferRequestId,
+    type: input.type,
+    channel: input.channel,
+    recipient_type: input.recipientType,
+    recipient_name: input.recipientName ?? null,
+    recipient_phone: input.recipientPhone ?? null,
+    message_body: input.messageBody ?? null,
+    created_by: input.createdBy ?? null
+  };
+}
+
 async function saveSupabaseAssignmentMessages(
   request: TransferRequest,
   driver: Driver
@@ -359,16 +419,18 @@ export function createSupabaseRepositories(): LogisticsRepositories {
     ...localRepositories,
     provider: "supabase",
     async refreshSnapshot(snapshot) {
-      const [drivers, requests, messages] = await Promise.all([
+      const [drivers, requests, messages, communicationEvents] = await Promise.all([
         listSupabaseDrivers(),
         listSupabaseTransferRequests(),
-        listSupabaseRequestMessages()
+        listSupabaseRequestMessages(),
+        listSupabaseCommunicationEvents()
       ]);
       return {
         ...snapshot,
         requests,
         drivers,
-        messages
+        messages,
+        communicationEvents
       };
     },
     transferRequests: {
@@ -661,6 +723,32 @@ export function createSupabaseRepositories(): LogisticsRepositories {
           messages: snapshot.messages.map((message) =>
             message.id === messageId ? updatedMessage : message
           )
+        };
+      }
+    },
+    communicationEvents: {
+      listByRequest(snapshot, requestId) {
+        return snapshot.communicationEvents
+          .filter((event) => event.transferRequestId === requestId)
+          .sort((first, second) => second.createdAt.localeCompare(first.createdAt));
+      },
+      async create(snapshot, input) {
+        const supabase = createSupabaseBrowserClient();
+        const { data, error } = await supabase
+          .from("communication_events")
+          .insert(mapCommunicationEventForInsert(input))
+          .select(communicationEventSelect)
+          .single();
+
+        if (error) {
+          throw formatSupabaseError("registrar comunicación", error);
+        }
+
+        const event = mapCommunicationEventRow(data as CommunicationEventRow);
+
+        return {
+          ...snapshot,
+          communicationEvents: [event, ...snapshot.communicationEvents]
         };
       }
     },

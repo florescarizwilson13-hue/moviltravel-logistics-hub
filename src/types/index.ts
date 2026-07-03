@@ -1,4 +1,5 @@
 export type * from "./ai";
+export type * from "./communication-event";
 export type * from "./company";
 export type * from "./driver";
 export type * from "./message";

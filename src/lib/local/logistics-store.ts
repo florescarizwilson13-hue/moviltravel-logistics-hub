@@ -19,6 +19,7 @@ import type {
   CreateDriverInput,
   Driver,
   GeneratedWhatsappMessage,
+  CommunicationEvent,
   RequestMessage,
   TransferRequest
 } from "@/types";
@@ -29,6 +30,7 @@ export type LocalLogisticsStore = {
   requests: TransferRequest[];
   drivers: Driver[];
   messages: RequestMessage[];
+  communicationEvents: CommunicationEvent[];
 };
 
 export function loadLocalLogisticsStore(): LocalLogisticsStore {
@@ -220,7 +222,8 @@ function createInitialStore(): LocalLogisticsStore {
   return {
     requests: MOCK_TRANSFER_REQUESTS,
     drivers: MOCK_DRIVERS,
-    messages: []
+    messages: [],
+    communicationEvents: []
   };
 }
 
@@ -229,6 +232,7 @@ function normalizeLocalLogisticsStore(store: LocalLogisticsStore): LocalLogistic
 
   return {
     ...store,
+    communicationEvents: store.communicationEvents ?? [],
     drivers: store.drivers.map((driver) => ({
       ...driver,
       availability: driver.availability === "busy" ? "inactive" : driver.availability,

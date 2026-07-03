@@ -14,7 +14,14 @@ import {
   getTransferRequestReviewText,
   TRANSFER_REQUEST_FIELD_LABELS
 } from "@/modules/transfer-requests";
-import type { CreateTransferRequestInput, Driver, RequestMessage } from "@/types";
+import type {
+  CommunicationEvent,
+  CommunicationEventType,
+  CommunicationRecipientType,
+  CreateTransferRequestInput,
+  Driver,
+  RequestMessage
+} from "@/types";
 import { RequestForm } from "./request-form";
 import { RequestStatusBadge } from "./request-status-badge";
 
@@ -50,6 +57,10 @@ export function RequestDetailView({ requestId }: { requestId: string }) {
         return first.createdAt.localeCompare(second.createdAt);
       }),
     [requestMessages]
+  );
+  const requestCommunicationEvents = useMemo(
+    () => (store ? repositories.communicationEvents.listByRequest(store, requestId) : []),
+    [requestId, repositories.communicationEvents, store]
   );
   const drivers = store?.drivers ?? [];
   const availableDrivers = drivers.filter((driver) => driver.availability === "available");
@@ -149,7 +160,18 @@ export function RequestDetailView({ requestId }: { requestId: string }) {
     }
 
     await runRequestAction(async () => {
-      setStore(await repositories.messages.updateStatus(store, message.id, "copied"));
+      const nextStatus = message.status === "sent" ? "sent" : "copied";
+      const snapshotWithMessage = await repositories.messages.updateStatus(
+        store,
+        message.id,
+        nextStatus
+      );
+      const snapshotWithEvent = await repositories.communicationEvents.create(
+        snapshotWithMessage,
+        buildCommunicationEventInput(message, "copied")
+      );
+
+      setStore(snapshotWithEvent);
       setCopyErrorMessageId(null);
       setCopiedMessageId(message.id);
       window.setTimeout(() => setCopiedMessageId(null), 1800);
@@ -162,7 +184,21 @@ export function RequestDetailView({ requestId }: { requestId: string }) {
     }
 
     await runRequestAction(async () => {
-      setStore(await repositories.messages.updateStatus(store, message.id, "sent"));
+      const snapshotWithMessage = await repositories.messages.updateStatus(store, message.id, "sent");
+      const recipientType = getMessageRecipientType(message);
+      const alreadyMarkedSent = hasMarkedSentCommunicationEvent(
+        snapshotWithMessage.communicationEvents,
+        message.transferRequestId,
+        recipientType
+      );
+      const nextSnapshot = alreadyMarkedSent
+        ? snapshotWithMessage
+        : await repositories.communicationEvents.create(
+            snapshotWithMessage,
+            buildCommunicationEventInput(message, "marked_sent")
+          );
+
+      setStore(nextSnapshot);
       setNotice("Mensaje marcado como enviado manualmente.");
     });
   }
@@ -452,6 +488,8 @@ export function RequestDetailView({ requestId }: { requestId: string }) {
         </p>
       )}
 
+      <CommunicationHistory events={requestCommunicationEvents} />
+
       {isAssigned ? (
         <>
           {missingDataSection}
@@ -459,6 +497,42 @@ export function RequestDetailView({ requestId }: { requestId: string }) {
         </>
       ) : null}
     </div>
+  );
+}
+
+function CommunicationHistory({ events }: { events: CommunicationEvent[] }) {
+  return (
+    <section className="rounded-lg border bg-card p-5">
+      <h4 className="font-medium">Historial de comunicaciones</h4>
+      {events.length > 0 ? (
+        <div className="mt-3 divide-y rounded-md border">
+          {events.map((event) => (
+            <div
+              key={event.id}
+              className="grid gap-1 px-3 py-2 text-sm md:grid-cols-[160px_1.4fr_1fr_1fr_auto] md:items-center"
+            >
+              <span className="font-medium text-foreground">
+                {formatCommunicationDate(event.createdAt)}
+              </span>
+              <span>{getCommunicationEventLabel(event.type)}</span>
+              <span className="text-muted-foreground">
+                {event.recipientName ?? "Destinatario pendiente"}
+              </span>
+              <span className="text-muted-foreground">
+                {event.recipientPhone ?? "Teléfono pendiente"}
+              </span>
+              <span className="text-xs font-medium uppercase tracking-wide text-emerald-700">
+                WhatsApp
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-2 text-sm text-muted-foreground">
+          Todavía no hay comunicaciones registradas para esta solicitud.
+        </p>
+      )}
+    </section>
   );
 }
 
@@ -612,6 +686,83 @@ function getMessageAudienceSortOrder(message: RequestMessage) {
   }
 
   return 2;
+}
+
+function buildCommunicationEventInput(
+  message: RequestMessage,
+  action: "copied" | "marked_sent"
+) {
+  const recipientType = getMessageRecipientType(message);
+
+  return {
+    transferRequestId: message.transferRequestId,
+    type: getCommunicationEventType(recipientType, action),
+    channel: "whatsapp" as const,
+    recipientType,
+    recipientName: message.recipientName ?? null,
+    recipientPhone: message.recipientPhone ?? null,
+    messageBody: message.body,
+    createdBy: null
+  };
+}
+
+function getMessageRecipientType(message: RequestMessage): CommunicationRecipientType {
+  return message.metadata?.audience === "driver" ? "driver" : "passenger";
+}
+
+function getCommunicationEventType(
+  recipientType: CommunicationRecipientType,
+  action: "copied" | "marked_sent"
+): CommunicationEventType {
+  if (recipientType === "driver") {
+    return action === "copied" ? "whatsapp_driver_copied" : "whatsapp_driver_marked_sent";
+  }
+
+  return action === "copied" ? "whatsapp_passenger_copied" : "whatsapp_passenger_marked_sent";
+}
+
+function hasMarkedSentCommunicationEvent(
+  events: CommunicationEvent[],
+  transferRequestId: string,
+  recipientType: CommunicationRecipientType
+) {
+  const sentType = getCommunicationEventType(recipientType, "marked_sent");
+
+  return events.some(
+    (event) => event.transferRequestId === transferRequestId && event.type === sentType
+  );
+}
+
+function getCommunicationEventLabel(type: CommunicationEventType) {
+  const labels: Record<CommunicationEventType, string> = {
+    whatsapp_passenger_copied: "WhatsApp pasajero copiado",
+    whatsapp_driver_copied: "WhatsApp conductor copiado",
+    whatsapp_passenger_marked_sent: "WhatsApp pasajero marcado como enviado",
+    whatsapp_driver_marked_sent: "WhatsApp conductor marcado como enviado"
+  };
+
+  return labels[type];
+}
+
+function formatCommunicationDate(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  const datePart = date.toLocaleDateString("es-CL", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric"
+  });
+  const timePart = date.toLocaleTimeString("es-CL", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  });
+
+  return `${datePart.replaceAll("-", "/")} ${timePart}`;
 }
 
 function AssignedDriverItem({ label, value }: { label: string; value: string }) {

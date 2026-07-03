@@ -11,7 +11,8 @@ const repositories = createLogisticsRepositories();
 const EMPTY_LOGISTICS_SNAPSHOT: LogisticsSnapshot = {
   requests: [],
   drivers: [],
-  messages: []
+  messages: [],
+  communicationEvents: []
 };
 
 export function useLocalLogisticsStore() {

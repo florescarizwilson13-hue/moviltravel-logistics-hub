@@ -1,5 +1,7 @@
 import type {
   AiConversation,
+  CommunicationEvent,
+  CreateCommunicationEventInput,
   CreateDriverInput,
   CreateTransferRequestInput,
   Driver,
@@ -15,6 +17,7 @@ export type LogisticsSnapshot = {
   requests: TransferRequest[];
   drivers: Driver[];
   messages: RequestMessage[];
+  communicationEvents: CommunicationEvent[];
 };
 
 export type TransferRequestRepository = {
@@ -78,6 +81,14 @@ export type MessageRepository = {
   ): LogisticsSnapshot | Promise<LogisticsSnapshot>;
 };
 
+export type CommunicationEventRepository = {
+  listByRequest(snapshot: LogisticsSnapshot, requestId: string): CommunicationEvent[];
+  create(
+    snapshot: LogisticsSnapshot,
+    input: CreateCommunicationEventInput
+  ): LogisticsSnapshot | Promise<LogisticsSnapshot>;
+};
+
 export type AiConversationRepository = {
   list(): Promise<AiConversation[]>;
   save(conversation: AiConversation): Promise<AiConversation>;
@@ -95,6 +106,7 @@ export type LogisticsRepositories = {
   transferRequests: TransferRequestRepository;
   drivers: DriverRepository;
   messages: MessageRepository;
+  communicationEvents: CommunicationEventRepository;
   aiConversations: AiConversationRepository;
   dashboard: DashboardRepository;
 };

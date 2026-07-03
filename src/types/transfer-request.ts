@@ -20,6 +20,7 @@ export type TransferRequest = {
   notes?: string | null;
   assignedDriverId?: string | null;
   assignedVehicleId?: string | null;
+  metadata?: Record<string, unknown> | null;
   status: TransferRequestStatus;
   createdAt: string;
   updatedAt: string;

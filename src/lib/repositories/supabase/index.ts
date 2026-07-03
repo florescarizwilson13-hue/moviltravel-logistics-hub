@@ -58,6 +58,7 @@ type TransferRequestRow = {
   assigned_driver_id: string | null;
   assigned_vehicle_id: string | null;
   status: TransferRequestStatus;
+  metadata: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
 };
@@ -80,7 +81,7 @@ const driverSelect =
   "id, full_name, phone, email, license_number, vehicle_name, vehicle_plate, vehicle_capacity, availability, is_seed, notes, created_at, updated_at";
 
 const transferRequestSelect =
-  "id, company_id, company_name, requester_name, requester_phone, requester_email, passenger_name, passenger_phone, origin_address, destination_address, pickup_date, pickup_time, pickup_at, passenger_count, cargo_description, special_requirements, notes, assigned_driver_id, assigned_vehicle_id, status, created_at, updated_at";
+  "id, company_id, company_name, requester_name, requester_phone, requester_email, passenger_name, passenger_phone, origin_address, destination_address, pickup_date, pickup_time, pickup_at, passenger_count, cargo_description, special_requirements, notes, assigned_driver_id, assigned_vehicle_id, status, metadata, created_at, updated_at";
 
 const requestMessageSelect =
   "id, transfer_request_id, channel, template, recipient_name, recipient_phone, body, status, metadata, created_at, updated_at";
@@ -145,6 +146,7 @@ function mapTransferRequestRow(row: TransferRequestRow): TransferRequest {
     notes: row.notes,
     assignedDriverId: row.assigned_driver_id,
     assignedVehicleId: row.assigned_vehicle_id,
+    metadata: row.metadata ?? null,
     status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at

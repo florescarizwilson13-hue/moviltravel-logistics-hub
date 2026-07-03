@@ -28,7 +28,12 @@ export type WhatsappInboundResult = {
 };
 
 const aiCaptureService = createAiCaptureService();
-const incompleteWhatsappStatuses: TransferRequestStatus[] = ["draft", "incomplete", "pending_review"];
+const collectingWhatsappStatuses: TransferRequestStatus[] = ["draft", "incomplete"];
+const newTransferIntentPatterns = [
+  /\bnecesito\s+(?:un\s+)?traslado\b/i,
+  /\bnuevo\s+traslado\b/i,
+  /\bsolicito\s+(?:un\s+)?traslado\b/i
+];
 const whatsappMissingFieldLabels: Partial<Record<keyof CreateTransferRequestInput, string>> = {
   companyName: "empresa",
   requesterName: "solicitante",
@@ -82,18 +87,22 @@ export async function processWhatsappInboundMessage(
   const analysis = await aiCaptureService.captureTransferRequest({ message: body });
   const supabase = await createTrustedSupabaseClient();
   const existingRequest = await findLatestOpenWhatsappRequest(supabase, payload.From);
+  const shouldCreateNewRequest =
+    !existingRequest || isNewTransferIntent(body, analysis.capturedData, existingRequest);
   const requestInput = existingRequest
+    && !shouldCreateNewRequest
     ? mergeRequestWithCapturedData(existingRequest, analysis.capturedData, payload)
     : withWhatsappContext(analysis.capturedData, payload);
   const request = buildTransferRequestDraft(requestInput);
   const metadata = buildWhatsappMetadata({
-    previousMetadata: existingRequest?.metadata,
+    previousMetadata: shouldCreateNewRequest ? undefined : existingRequest?.metadata,
     payload,
     analysis,
-    body
+    body,
+    request
   });
 
-  const write = existingRequest
+  const write = existingRequest && !shouldCreateNewRequest
     ? supabase
         .from("transfer_requests")
         .update(mapTransferRequestForWrite(request, metadata))
@@ -141,7 +150,7 @@ async function findLatestOpenWhatsappRequest(
     .select(
       "id, company_id, company_name, requester_name, requester_phone, requester_email, passenger_name, passenger_phone, origin_address, destination_address, pickup_date, pickup_time, pickup_at, passenger_count, cargo_description, special_requirements, notes, assigned_driver_id, assigned_vehicle_id, status, metadata"
     )
-    .in("status", incompleteWhatsappStatuses)
+    .in("status", collectingWhatsappStatuses)
     .order("updated_at", { ascending: false })
     .limit(25);
 
@@ -352,6 +361,7 @@ function buildWhatsappMetadata(input: {
   payload: TwilioWhatsappInboundPayload;
   analysis: AiCaptureResult;
   body: string;
+  request: ReturnType<typeof buildTransferRequestDraft>;
 }) {
   const now = new Date().toISOString();
   const previousMessages = Array.isArray(input.previousMetadata?.conversation_messages)
@@ -370,6 +380,7 @@ function buildWhatsappMetadata(input: {
     whatsapp_from: input.payload.From ?? null,
     whatsapp_to: input.payload.To ?? null,
     whatsapp_profile_name: input.payload.ProfileName ?? null,
+    conversation_status: input.request.completeness.isComplete ? "ready_for_review" : "collecting",
     last_inbound_message_at: now,
     last_inbound_message: nextMessage,
     conversation_messages: [...previousMessages, nextMessage].slice(-10),
@@ -380,6 +391,26 @@ function buildWhatsappMetadata(input: {
       readyForReview: input.analysis.readyForReview
     }
   };
+}
+
+function isNewTransferIntent(
+  message: string,
+  capturedData: CreateTransferRequestInput,
+  existingRequest: TransferRequestIntakeRow
+) {
+  const existingData = mapTransferRequestRowToInput(existingRequest);
+  const hasExplicitTransferPhrase = newTransferIntentPatterns.some((pattern) =>
+    pattern.test(message)
+  );
+  const hasRoute = Boolean(capturedData.originAddress && capturedData.destinationAddress);
+  const hasDifferentPassenger = Boolean(
+    capturedData.passengerName &&
+      existingData.passengerName &&
+      normalizeComparable(capturedData.passengerName) !==
+        normalizeComparable(existingData.passengerName)
+  );
+
+  return hasDifferentPassenger || hasRoute || hasExplicitTransferPhrase;
 }
 
 function normalizeWhatsappAddress(value: string | undefined) {
@@ -413,6 +444,14 @@ function buildWhatsappReply(request: ReturnType<typeof buildTransferRequestDraft
 
 function isEmpty(value: unknown) {
   return value === undefined || value === null || value === "";
+}
+
+function normalizeComparable(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
 }
 
 function getWhatsappMissingFieldLabel(field: keyof TransferRequest) {

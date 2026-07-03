@@ -33,10 +33,12 @@ export function RequestsInbox() {
     }
 
     if (statusFilter === "all") {
-      return store.requests;
+      return sortRequestsByLatestActivity(store.requests);
     }
 
-    return store.requests.filter((request) => request.status === statusFilter);
+    return sortRequestsByLatestActivity(
+      store.requests.filter((request) => request.status === statusFilter)
+    );
   }, [statusFilter, store]);
 
   if (!isReady || !store) {
@@ -133,7 +135,14 @@ export function RequestsInbox() {
               >
                 <div className="min-w-0">
                   <p className="font-medium">{summary.passenger}</p>
-                  <p className="truncate text-muted-foreground">{summary.company}</p>
+                  <p className="truncate text-muted-foreground">
+                    {summary.company}
+                    {getRequestSourceLabel(request) ? (
+                      <span className="ml-2 rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[11px] font-medium text-emerald-700">
+                        {getRequestSourceLabel(request)}
+                      </span>
+                    ) : null}
+                  </p>
                   <p className="truncate text-xs text-muted-foreground">
                     {summary.origin} → {summary.destination}
                   </p>
@@ -164,4 +173,20 @@ export function RequestsInbox() {
       </section>
     </div>
   );
+}
+
+function sortRequestsByLatestActivity<T extends { createdAt: string; updatedAt: string }>(
+  requests: T[]
+) {
+  return [...requests].sort((first, second) =>
+    getRequestSortDate(second).localeCompare(getRequestSortDate(first))
+  );
+}
+
+function getRequestSortDate(request: { createdAt: string; updatedAt: string }) {
+  return request.updatedAt || request.createdAt;
+}
+
+function getRequestSourceLabel(request: { metadata?: Record<string, unknown> | null }) {
+  return request.metadata?.source === "twilio_whatsapp_sandbox" ? "WhatsApp" : null;
 }

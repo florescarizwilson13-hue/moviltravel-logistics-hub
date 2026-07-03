@@ -6,21 +6,6 @@ import { Button } from "@/components/ui/button";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 type ResetState = "checking" | "ready" | "invalid" | "success";
-type RecoveryDiagnostic = {
-  hasCode: boolean;
-  hasAccessToken: boolean;
-  hasRefreshToken: boolean;
-  hasSession: boolean;
-  supabaseError: string | null;
-};
-
-const initialDiagnostic: RecoveryDiagnostic = {
-  hasCode: false,
-  hasAccessToken: false,
-  hasRefreshToken: false,
-  hasSession: false,
-  supabaseError: null
-};
 
 function logRecoveryDebug(message: string, details: Record<string, unknown>) {
   if (process.env.NODE_ENV !== "development") {
@@ -55,50 +40,27 @@ function shortenMessage(message: string | null | undefined) {
   return message.length > 140 ? `${message.slice(0, 137)}...` : message;
 }
 
-function RecoveryDiagnosticPanel({ diagnostic }: { diagnostic: RecoveryDiagnostic }) {
-  return (
-    <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
-      <p className="font-medium">Diagnóstico temporal recuperación</p>
-      <ul className="mt-2 space-y-1">
-        <li>code presente: {diagnostic.hasCode ? "sí" : "no"}</li>
-        <li>access_token presente: {diagnostic.hasAccessToken ? "sí" : "no"}</li>
-        <li>refresh_token presente: {diagnostic.hasRefreshToken ? "sí" : "no"}</li>
-        <li>sesión detectada: {diagnostic.hasSession ? "sí" : "no"}</li>
-        <li>error Supabase: {diagnostic.supabaseError ?? "sin error"}</li>
-      </ul>
-    </div>
-  );
-}
-
 export function ResetPasswordForm() {
   const [state, setState] = useState<ResetState>("checking");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [diagnostic, setDiagnostic] = useState<RecoveryDiagnostic>(initialDiagnostic);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     async function prepareRecoverySession() {
       const { type, accessToken, refreshToken, code, urlError } = getRecoveryParams();
       const supabase = createSupabaseBrowserClient();
-      const nextDiagnostic: RecoveryDiagnostic = {
-        hasCode: Boolean(code),
-        hasAccessToken: Boolean(accessToken),
-        hasRefreshToken: Boolean(refreshToken),
-        hasSession: false,
-        supabaseError: shortenMessage(urlError)
-      };
 
       logRecoveryDebug("recovery params received", {
         type,
-        hasAccessToken: nextDiagnostic.hasAccessToken,
-        hasRefreshToken: nextDiagnostic.hasRefreshToken,
-        hasCode: nextDiagnostic.hasCode,
+        hasAccessToken: Boolean(accessToken),
+        hasRefreshToken: Boolean(refreshToken),
+        hasCode: Boolean(code),
         hasUrlError: Boolean(urlError)
       });
 
-      let sessionErrorMessage = nextDiagnostic.supabaseError;
+      let sessionErrorMessage = shortenMessage(urlError);
 
       if (code) {
         const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
@@ -116,11 +78,6 @@ export function ResetPasswordForm() {
       sessionErrorMessage = shortenMessage(currentSessionError?.message) ?? sessionErrorMessage;
 
       if (currentSession) {
-        setDiagnostic({
-          ...nextDiagnostic,
-          hasSession: true,
-          supabaseError: sessionErrorMessage
-        });
         window.history.replaceState(null, "", "/reset-password");
         setState("ready");
         return;
@@ -145,21 +102,14 @@ export function ResetPasswordForm() {
           shortenMessage(sessionAfterSetSessionError?.message) ?? sessionErrorMessage;
 
         if (sessionAfterSetSession) {
-          setDiagnostic({
-            ...nextDiagnostic,
-            hasSession: true,
-            supabaseError: sessionErrorMessage
-          });
           window.history.replaceState(null, "", "/reset-password");
           setState("ready");
           return;
         }
       }
 
-      setDiagnostic({
-        ...nextDiagnostic,
-        hasSession: false,
-        supabaseError: sessionErrorMessage
+      logRecoveryDebug("no recovery session detected", {
+        errorMessage: sessionErrorMessage
       });
       setState("invalid");
     }
@@ -207,7 +157,6 @@ export function ResetPasswordForm() {
     return (
       <section className="rounded-lg border bg-card p-6 text-sm shadow-sm">
         Validando enlace de recuperación...
-        <RecoveryDiagnosticPanel diagnostic={diagnostic} />
       </section>
     );
   }
@@ -219,7 +168,6 @@ export function ResetPasswordForm() {
         <p className="mt-2 text-sm text-muted-foreground">
           El enlace venció. Solicita un nuevo correo de recuperación.
         </p>
-        <RecoveryDiagnosticPanel diagnostic={diagnostic} />
         <Link
           href="/login"
           className="mt-5 inline-flex h-10 items-center justify-center rounded-md border border-input bg-white px-4 text-sm font-medium hover:bg-muted"
@@ -255,7 +203,6 @@ export function ResetPasswordForm() {
         <p className="mt-2 text-sm text-muted-foreground">
           Ingresa una nueva contraseña para recuperar el acceso a la plataforma.
         </p>
-        <RecoveryDiagnosticPanel diagnostic={diagnostic} />
       </div>
 
       <div className="space-y-4">

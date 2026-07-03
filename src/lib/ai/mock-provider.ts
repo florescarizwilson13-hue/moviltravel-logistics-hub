@@ -116,12 +116,12 @@ function extractPickupDate(normalized: string) {
 function extractOrigin(message: string) {
   return matchFirst(
     message,
-    /\bdesde\s+(.+?)(?=\s+(?:al|a)\s+[A-ZÁÉÍÓÚÑ0-9]|[.,;\n]|$)/iu
+    /\bdesde\s+(.+?)(?=\s+(?:hasta|al|a)\s+[A-ZÁÉÍÓÚÑ0-9]|[.,;\n]|$)/iu
   );
 }
 
 function extractDestination(message: string) {
-  const matches = [...message.matchAll(/\b(?:al|a)\s+(.+?)(?:[.,;\n]|$)/giu)]
+  const matches = [...message.matchAll(/\b(?:hasta|al|a)\s+(.+?)(?:[.,;\n]|$)/giu)]
     .map((match) => match[1]?.trim())
     .filter(Boolean)
     .filter((value) => !value.toLowerCase().startsWith("las "));

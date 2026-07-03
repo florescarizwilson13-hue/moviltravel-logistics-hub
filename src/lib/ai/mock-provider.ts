@@ -52,7 +52,7 @@ function extractSimpleTransferFields(message: string): CreateTransferRequestInpu
   }
 
   if (normalized.includes("destino:")) {
-    data.destinationAddress = readValueAfterLabel(message, "destino:");
+    data.destinationAddress = cleanDestinationPrefix(readValueAfterLabel(message, "destino:"));
   }
 
   if (normalized.includes("telefono:")) {
@@ -124,9 +124,17 @@ function extractDestination(message: string) {
   const matches = [...message.matchAll(/\b(?:hasta|al|a)\s+(.+?)(?:[.,;\n]|$)/giu)]
     .map((match) => match[1]?.trim())
     .filter(Boolean)
+    .map(cleanDestinationPrefix)
+    .filter((value): value is string => Boolean(value))
     .filter((value) => !value.toLowerCase().startsWith("las "));
 
   return matches.at(-1);
+}
+
+function cleanDestinationPrefix(value: string | undefined) {
+  return value
+    ?.replace(/^(?:hasta|hacia|a la|al|a|para)\s+/i, "")
+    .trim();
 }
 
 function extractPhone(message: string, labels: string[]) {

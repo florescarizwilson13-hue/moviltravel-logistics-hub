@@ -255,6 +255,8 @@ function mergeEmptyFields(
   existingData: CreateTransferRequestInput,
   capturedData: CreateTransferRequestInput
 ) {
+  const shouldReplaceDateTime = Boolean(capturedData.pickupDate || capturedData.pickupTime);
+
   return {
     ...existingData,
     companyName: pickExistingOrCaptured(existingData.companyName, capturedData.companyName),
@@ -268,9 +270,15 @@ function mergeEmptyFields(
       existingData.destinationAddress,
       capturedData.destinationAddress
     ),
-    pickupDate: pickExistingOrCaptured(existingData.pickupDate, capturedData.pickupDate),
-    pickupTime: pickExistingOrCaptured(existingData.pickupTime, capturedData.pickupTime),
-    pickupAt: pickExistingOrCaptured(existingData.pickupAt, capturedData.pickupAt),
+    pickupDate: shouldReplaceDateTime
+      ? capturedData.pickupDate ?? existingData.pickupDate
+      : pickExistingOrCaptured(existingData.pickupDate, capturedData.pickupDate),
+    pickupTime: shouldReplaceDateTime
+      ? capturedData.pickupTime ?? existingData.pickupTime
+      : pickExistingOrCaptured(existingData.pickupTime, capturedData.pickupTime),
+    pickupAt: shouldReplaceDateTime
+      ? null
+      : pickExistingOrCaptured(existingData.pickupAt, capturedData.pickupAt),
     passengerCount: pickExistingOrCaptured(
       existingData.passengerCount,
       capturedData.passengerCount

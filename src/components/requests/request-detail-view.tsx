@@ -21,6 +21,7 @@ import type {
   CreateTransferRequestInput,
   Driver,
   RequestMessage,
+  TransferRequest,
   TravelEvent
 } from "@/types";
 import { RequestForm } from "./request-form";
@@ -495,7 +496,12 @@ export function RequestDetailView({ requestId }: { requestId: string }) {
 
       <CommunicationHistory events={requestCommunicationEvents} />
 
-      <TravelTrackingHistory events={requestTravelEvents} />
+      <TravelTrackingHistory
+        request={request}
+        events={requestTravelEvents}
+        assignedDriver={assignedDriver}
+        messages={requestMessages}
+      />
 
       {isAssigned ? (
         <>
@@ -507,36 +513,95 @@ export function RequestDetailView({ requestId }: { requestId: string }) {
   );
 }
 
-function TravelTrackingHistory({ events }: { events: TravelEvent[] }) {
+function TravelTrackingHistory({
+  request,
+  events,
+  assignedDriver,
+  messages
+}: {
+  request: TransferRequest;
+  events: TravelEvent[];
+  assignedDriver?: Driver;
+  messages: RequestMessage[];
+}) {
+  const steps = buildTravelTimelineSteps({ request, events, assignedDriver, messages });
+  const hasIncident = steps.some((step) => step.kind === "incident" && step.status === "done");
+
   return (
-    <section className="rounded-lg border bg-card p-5">
-      <h4 className="font-medium">Seguimiento del viaje</h4>
-      {events.length > 0 ? (
-        <div className="mt-3 divide-y rounded-md border">
-          {events.map((event) => (
-            <div
-              key={event.id}
-              className="grid gap-1 px-3 py-2 text-sm md:grid-cols-[160px_1.4fr_1fr_auto] md:items-center"
-            >
-              <span className="font-medium text-foreground">
-                {formatCommunicationDate(event.createdAt)}
-              </span>
-              <span>{getTravelEventLabel(event.type)}</span>
-              <span className="text-muted-foreground">
-                {event.actorName ?? "Conductor pendiente"}
-              </span>
-              <span className="text-xs font-medium uppercase tracking-wide text-emerald-700">
-                WhatsApp
-              </span>
-            </div>
-          ))}
+    <section
+      className={`rounded-lg border bg-card p-5 ${
+        hasIncident ? "border-orange-300 bg-orange-50/40" : ""
+      }`}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h4 className="font-medium">Seguimiento del viaje</h4>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Los hitos pueden registrarse desde WhatsApp del conductor usando: 1 Llegué, 2 Salgo
+            con pasajero, 3 Finalicé, 9 Incidencia.
+          </p>
         </div>
-      ) : (
-        <p className="mt-2 text-sm text-muted-foreground">
-          Todavía no hay eventos de viaje registrados.
-        </p>
-      )}
+        <RequestStatusBadge status={request.status} />
+      </div>
+      <div className="mt-4 space-y-3">
+        {steps.map((step) => (
+          <TravelTimelineStep key={step.kind} step={step} />
+        ))}
+      </div>
     </section>
+  );
+}
+
+type TravelTimelineStep = {
+  kind: "assigned" | TravelEvent["type"];
+  title: string;
+  status: "done" | "pending";
+  occurredAt?: string | null;
+  actor?: string | null;
+  source?: string | null;
+  isIncident?: boolean;
+};
+
+function TravelTimelineStep({ step }: { step: TravelTimelineStep }) {
+  const marker =
+    step.status === "done" ? (
+      <span
+        className={`flex h-6 w-6 items-center justify-center rounded-full border text-xs font-semibold ${
+          step.isIncident
+            ? "border-orange-300 bg-orange-100 text-orange-800"
+            : "border-emerald-300 bg-emerald-50 text-emerald-800"
+        }`}
+      >
+        ✓
+      </span>
+    ) : (
+      <span className="flex h-6 w-6 items-center justify-center rounded-full border border-zinc-300 bg-white text-xs font-semibold text-zinc-500">
+        ○
+      </span>
+    );
+
+  return (
+    <div className="grid grid-cols-[24px_1fr] gap-3 text-sm">
+      {marker}
+      <div
+        className={`rounded-md border px-3 py-2 ${
+          step.isIncident && step.status === "done"
+            ? "border-orange-300 bg-orange-50 text-orange-950"
+            : "bg-white"
+        }`}
+      >
+        <p className="font-medium">{step.title}</p>
+        {step.status === "done" ? (
+          <p className="mt-1 text-muted-foreground">
+            {[step.occurredAt ? formatCommunicationDate(step.occurredAt) : null, step.actor, step.source]
+              .filter(Boolean)
+              .join(" · ")}
+          </p>
+        ) : (
+          <p className="mt-1 text-muted-foreground">Pendiente</p>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -782,6 +847,135 @@ function getCommunicationEventLabel(type: CommunicationEventType) {
   };
 
   return labels[type];
+}
+
+function buildTravelTimelineSteps({
+  request,
+  events,
+  assignedDriver,
+  messages
+}: {
+  request: TransferRequest;
+  events: TravelEvent[];
+  assignedDriver?: Driver;
+  messages: RequestMessage[];
+}): TravelTimelineStep[] {
+  const driverAtPickup = getTravelEventByType(events, "driver_at_pickup");
+  const passengerOnBoard = getTravelEventByType(events, "passenger_on_board");
+  const completed = getTravelEventByType(events, "completed");
+  const incident = getTravelEventByType(events, "incident");
+  const assignmentMessage = [...messages]
+    .filter((message) => message.template === "driver_assignment")
+    .sort((first, second) => first.createdAt.localeCompare(second.createdAt))[0];
+  const assignedAt = assignmentMessage?.createdAt ?? request.updatedAt;
+  const assignedActor = assignedDriver?.fullName ?? "Conductor pendiente";
+
+  const steps: TravelTimelineStep[] = [
+    {
+      kind: "assigned",
+      title: "Traslado asignado",
+      status: isTravelStepDone(request, "assigned") ? "done" : "pending",
+      occurredAt: assignedAt,
+      actor: assignedActor,
+      source: "Sistema"
+    },
+    buildTravelEventStep({
+      kind: "driver_at_pickup",
+      title: "Conductor en origen",
+      request,
+      event: driverAtPickup,
+      assignedDriver
+    }),
+    buildTravelEventStep({
+      kind: "passenger_on_board",
+      title: "Pasajero a bordo / En traslado",
+      request,
+      event: passengerOnBoard,
+      assignedDriver
+    }),
+    buildTravelEventStep({
+      kind: "completed",
+      title: "Servicio finalizado",
+      request,
+      event: completed,
+      assignedDriver
+    })
+  ];
+
+  if (incident || request.status === "incident") {
+    steps.push(
+      buildTravelEventStep({
+        kind: "incident",
+        title: "Incidencia",
+        request,
+        event: incident,
+        assignedDriver,
+        isIncident: true
+      })
+    );
+  }
+
+  return steps;
+}
+
+function buildTravelEventStep({
+  kind,
+  title,
+  request,
+  event,
+  assignedDriver,
+  isIncident = false
+}: {
+  kind: TravelEvent["type"];
+  title: string;
+  request: TransferRequest;
+  event?: TravelEvent;
+  assignedDriver?: Driver;
+  isIncident?: boolean;
+}): TravelTimelineStep {
+  const isDone = Boolean(event) || isTravelStepDone(request, kind);
+
+  return {
+    kind,
+    title,
+    status: isDone ? "done" : "pending",
+    occurredAt: event?.createdAt ?? (isDone ? request.updatedAt : null),
+    actor: event?.actorName ?? assignedDriver?.fullName ?? null,
+    source: event ? getTravelEventSourceLabel(event.source) : isDone ? "Sistema" : null,
+    isIncident
+  };
+}
+
+function getTravelEventByType(events: TravelEvent[], type: TravelEvent["type"]) {
+  return [...events]
+    .filter((event) => event.type === type)
+    .sort((first, second) => second.createdAt.localeCompare(first.createdAt))[0];
+}
+
+function isTravelStepDone(request: TransferRequest, step: TravelTimelineStep["kind"]) {
+  const currentIndex = travelStatusOrder.indexOf(request.status);
+  const stepIndex = travelStatusOrder.indexOf(step);
+
+  if (step === "incident") {
+    return request.status === "incident";
+  }
+
+  if (step === "assigned") {
+    return Boolean(request.assignedDriverId) || currentIndex >= travelStatusOrder.indexOf("assigned");
+  }
+
+  return currentIndex >= stepIndex && stepIndex >= 0;
+}
+
+const travelStatusOrder: string[] = [
+  "assigned",
+  "driver_at_pickup",
+  "passenger_on_board",
+  "completed"
+];
+
+function getTravelEventSourceLabel(source: TravelEvent["source"]) {
+  return source === "whatsapp_driver" ? "WhatsApp conductor" : "Sistema";
 }
 
 function getTravelEventLabel(type: TravelEvent["type"]) {

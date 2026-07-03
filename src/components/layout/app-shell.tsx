@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Bot,
+  BarChart3,
   Car,
   ClipboardList,
   Gauge,
@@ -19,6 +20,7 @@ const navItems = [
   { href: "/dashboard", label: "Panel operativo", icon: Gauge },
   { href: "/operacion", label: "Guía operativa", icon: ClipboardList },
   { href: "/requests", label: "Solicitudes", icon: Route },
+  { href: "/reports", label: "Informes", icon: BarChart3 },
   { href: "/drivers", label: "Conductores", icon: Car },
   { href: "/vehicles", label: "Vehículos", icon: Truck },
   { href: "/messages", label: "Mensajes", icon: MessageSquareText },

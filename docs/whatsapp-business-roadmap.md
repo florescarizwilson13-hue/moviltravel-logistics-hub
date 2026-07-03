@@ -80,6 +80,14 @@ Este documento ordena la transición del canal WhatsApp desde Twilio Sandbox hac
   - `travel_events`
   - `driver_whatsapp_sessions`
 
+### Estado técnico actual
+
+- Ya existe una primera capa de proveedor en `src/modules/whatsapp/providers/`.
+- `TwilioSandboxProvider` es el proveedor activo para el webhook actual.
+- El webhook convierte el payload Twilio a un `WhatsAppInboundMessage` interno antes de llamar la lógica de negocio.
+- `WhatsAppBusinessProvider` queda como proveedor futuro para WhatsApp Business real.
+- La lógica de intake, memoria conversacional, conductor, eventos y sesiones debe seguir dependiendo del mensaje interno, no del formato bruto de Twilio.
+
 ## 7. Próximos pasos sugeridos
 
 1. Cerrar pruebas mínimas de Twilio.

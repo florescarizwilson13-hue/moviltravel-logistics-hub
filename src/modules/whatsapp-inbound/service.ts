@@ -15,15 +15,7 @@ import type {
   TransferRequest,
   TransferRequestStatus
 } from "@/types";
-
-export type TwilioWhatsappInboundPayload = {
-  From?: string;
-  To?: string;
-  Body?: string;
-  ProfileName?: string;
-  MessageSid?: string;
-  SmsMessageSid?: string;
-};
+import type { WhatsAppInboundMessage } from "@/modules/whatsapp/providers/types";
 
 export type WhatsappInboundResult = {
   requestId: string | null;
@@ -153,9 +145,9 @@ type DriverCommand = {
 };
 
 export async function processWhatsappInboundMessage(
-  payload: TwilioWhatsappInboundPayload
+  message: WhatsAppInboundMessage
 ): Promise<WhatsappInboundResult> {
-  const body = payload.Body?.trim();
+  const body = message.body.trim();
 
   if (!body) {
     return {
@@ -166,7 +158,7 @@ export async function processWhatsappInboundMessage(
   }
 
   const supabase = await createTrustedSupabaseClient();
-  const driverResult = await processDriverTravelCommand(supabase, payload, body);
+  const driverResult = await processDriverTravelCommand(supabase, message, body);
 
   if (driverResult) {
     return driverResult;
@@ -181,20 +173,20 @@ export async function processWhatsappInboundMessage(
   }
 
   const analysis = await aiCaptureService.captureTransferRequest({ message: body });
-  const existingRequest = await findLatestOpenWhatsappRequest(supabase, payload.From);
+  const existingRequest = await findLatestOpenWhatsappRequest(supabase, message.from);
   const shouldCreateNewRequest =
     !existingRequest || isNewTransferIntent(body, analysis.capturedData, existingRequest);
   const requestInput = existingRequest
     && !shouldCreateNewRequest
-    ? mergeRequestWithCapturedData(existingRequest, analysis.capturedData, payload)
-    : withWhatsappContext(analysis.capturedData, payload);
+    ? mergeRequestWithCapturedData(existingRequest, analysis.capturedData, message)
+    : withWhatsappContext(analysis.capturedData, message);
   const request = buildTransferRequestDraft({
     ...requestInput,
     status: undefined
   });
   const metadata = buildWhatsappMetadata({
     previousMetadata: shouldCreateNewRequest ? undefined : existingRequest?.metadata,
-    payload,
+    message,
     analysis,
     body,
     request
@@ -222,7 +214,7 @@ export async function processWhatsappInboundMessage(
   const requestId = data?.id ?? null;
   const reply = buildWhatsappReply(request);
   await saveAiConversationAttempt({
-    payload,
+    message,
     requestId,
     analysis,
     reply
@@ -249,16 +241,16 @@ function normalizeTextForOperationalMessageMatch(message: string) {
 
 async function processDriverTravelCommand(
   supabase: Awaited<ReturnType<typeof createTrustedSupabaseClient>>,
-  payload: TwilioWhatsappInboundPayload,
+  message: WhatsAppInboundMessage,
   body: string
 ): Promise<WhatsappInboundResult | null> {
-  const driver = await findActiveDriverByWhatsappFrom(supabase, payload.From);
+  const driver = await findActiveDriverByWhatsappFrom(supabase, message.from);
 
   if (!driver) {
     return null;
   }
 
-  const whatsappFrom = normalizeWhatsappPhone(payload.From);
+  const whatsappFrom = normalizeWhatsappPhone(message.from);
 
   if (!whatsappFrom) {
     return null;
@@ -354,7 +346,7 @@ async function processDriverTravelCommand(
 
 async function findActiveDriverByWhatsappFrom(
   supabase: Awaited<ReturnType<typeof createTrustedSupabaseClient>>,
-  from: string | undefined
+  from: string | null | undefined
 ) {
   const fromPhone = normalizeWhatsappPhone(from);
 
@@ -872,7 +864,7 @@ function getFutureIso(duration: { minutes?: number; hours?: number }) {
   return date.toISOString();
 }
 
-function normalizeWhatsappPhone(value: string | undefined) {
+function normalizeWhatsappPhone(value: string | null | undefined) {
   return normalizeChileanPhone(normalizeWhatsappAddress(value));
 }
 
@@ -931,7 +923,7 @@ function formatCurrentWhatsappTime() {
 
 async function findLatestOpenWhatsappRequest(
   supabase: Awaited<ReturnType<typeof createTrustedSupabaseClient>>,
-  from: string | undefined
+  from: string | null | undefined
 ) {
   if (!from) {
     return null;
@@ -967,7 +959,7 @@ async function createTrustedSupabaseClient() {
 }
 
 async function saveAiConversationAttempt(input: {
-  payload: TwilioWhatsappInboundPayload;
+  message: WhatsAppInboundMessage;
   requestId: string | null;
   analysis: AiCaptureResult;
   reply: string;
@@ -979,14 +971,14 @@ async function saveAiConversationAttempt(input: {
       provider: "mock",
       status: input.analysis.readyForReview ? "completed" : "open",
       source_channel: "whatsapp",
-      source_reference: input.payload.MessageSid ?? input.payload.SmsMessageSid ?? input.payload.From ?? null,
+      source_reference: input.message.providerMessageId ?? input.message.from ?? null,
       captured_data: input.analysis.capturedData,
       missing_fields: input.analysis.missingFields,
       confidence: input.analysis.confidence,
       messages: [
         {
           role: "user",
-          content: input.payload.Body ?? "",
+          content: input.message.body,
           createdAt: new Date().toISOString()
         },
         {
@@ -997,9 +989,10 @@ async function saveAiConversationAttempt(input: {
       ],
       metadata: {
         source: "twilio_whatsapp_sandbox",
-        from: input.payload.From ?? null,
-        to: input.payload.To ?? null,
-        profileName: input.payload.ProfileName ?? null
+        provider: input.message.provider,
+        from: input.message.from ?? null,
+        to: input.message.to ?? null,
+        profileName: input.message.profileName ?? null
       }
     });
   } catch {
@@ -1009,12 +1002,12 @@ async function saveAiConversationAttempt(input: {
 
 function withWhatsappContext(
   capturedData: CreateTransferRequestInput,
-  payload: TwilioWhatsappInboundPayload
+  message: WhatsAppInboundMessage
 ): CreateTransferRequestInput {
   const sourceLines = [
     "Origen solicitud: WhatsApp Twilio Sandbox",
-    payload.ProfileName ? `Perfil WhatsApp: ${payload.ProfileName}` : null,
-    payload.From ? `Desde: ${payload.From}` : null,
+    message.profileName ? `Perfil WhatsApp: ${message.profileName}` : null,
+    message.from ? `Desde: ${message.from}` : null,
     capturedData.notes
   ].filter(Boolean);
 
@@ -1027,15 +1020,15 @@ function withWhatsappContext(
 function mergeRequestWithCapturedData(
   existingRequest: TransferRequestIntakeRow,
   capturedData: CreateTransferRequestInput,
-  payload: TwilioWhatsappInboundPayload
+  message: WhatsAppInboundMessage
 ): CreateTransferRequestInput {
   const existingData = mapTransferRequestRowToInput(existingRequest);
   const nextData = applyShortPassengerNameFallback({
     existingData,
-    message: payload.Body ?? "",
+    message: message.body,
     mergedData: mergeEmptyFields(existingData, capturedData, existingRequest)
   });
-  const withContext = withWhatsappContext(nextData, payload);
+  const withContext = withWhatsappContext(nextData, message);
 
   return {
     ...withContext,
@@ -1314,7 +1307,7 @@ function mapTransferRequestForWrite(
 
 function buildWhatsappMetadata(input: {
   previousMetadata?: Record<string, unknown>;
-  payload: TwilioWhatsappInboundPayload;
+  message: WhatsAppInboundMessage;
   analysis: AiCaptureResult;
   body: string;
   request: ReturnType<typeof buildTransferRequestDraft>;
@@ -1326,16 +1319,18 @@ function buildWhatsappMetadata(input: {
   const nextMessage = {
     direction: "inbound",
     body: input.body,
-    messageSid: input.payload.MessageSid ?? input.payload.SmsMessageSid ?? null,
+    messageSid: input.message.providerMessageId ?? null,
     receivedAt: now
   };
 
   return {
     ...(input.previousMetadata ?? {}),
     source: "twilio_whatsapp_sandbox",
-    whatsapp_from: input.payload.From ?? null,
-    whatsapp_to: input.payload.To ?? null,
-    whatsapp_profile_name: input.payload.ProfileName ?? null,
+    whatsapp_provider: input.message.provider,
+    whatsapp_from: input.message.from ?? null,
+    whatsapp_to: input.message.to ?? null,
+    whatsapp_profile_name: input.message.profileName ?? null,
+    whatsapp_location: input.message.location ?? null,
     conversation_status: input.request.completeness.isComplete ? "ready_for_review" : "collecting",
     last_inbound_message_at: now,
     last_inbound_message: nextMessage,
@@ -1369,7 +1364,7 @@ function isNewTransferIntent(
   return hasDifferentPassenger || hasRoute || hasExplicitTransferPhrase;
 }
 
-function normalizeWhatsappAddress(value: string | undefined) {
+function normalizeWhatsappAddress(value: string | null | undefined) {
   return value?.replace(/^whatsapp:/i, "").trim() || null;
 }
 

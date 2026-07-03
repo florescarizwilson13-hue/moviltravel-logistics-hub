@@ -111,6 +111,8 @@ type TravelEventRow = {
   message_body: string | null;
   latitude: number | null;
   longitude: number | null;
+  location_accuracy: number | null;
+  location_label: string | null;
   created_at: string;
 };
 
@@ -127,7 +129,7 @@ const communicationEventSelect =
   "id, transfer_request_id, type, channel, recipient_type, recipient_name, recipient_phone, message_body, created_by, created_at";
 
 const travelEventSelect =
-  "id, transfer_request_id, type, source, actor_type, actor_name, actor_phone, message_body, latitude, longitude, created_at";
+  "id, transfer_request_id, type, source, actor_type, actor_name, actor_phone, message_body, latitude, longitude, location_accuracy, location_label, created_at";
 
 function notImplemented(operation: string): never {
   throw new Error(
@@ -241,6 +243,8 @@ function mapTravelEventRow(row: TravelEventRow): TravelEvent {
     messageBody: row.message_body,
     latitude: row.latitude,
     longitude: row.longitude,
+    locationAccuracy: row.location_accuracy,
+    locationLabel: row.location_label,
     createdAt: row.created_at
   };
 }
@@ -442,7 +446,9 @@ function mapTravelEventForInsert(input: CreateTravelEventInput) {
     actor_phone: input.actorPhone ?? null,
     message_body: input.messageBody ?? null,
     latitude: input.latitude ?? null,
-    longitude: input.longitude ?? null
+    longitude: input.longitude ?? null,
+    location_accuracy: input.locationAccuracy ?? null,
+    location_label: input.locationLabel ?? null
   };
 }
 

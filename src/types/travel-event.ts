@@ -16,6 +16,8 @@ export type TravelEvent = {
   messageBody?: string | null;
   latitude?: number | null;
   longitude?: number | null;
+  locationAccuracy?: number | null;
+  locationLabel?: string | null;
   createdAt: string;
 };
 

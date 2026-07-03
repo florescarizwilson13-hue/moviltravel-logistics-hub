@@ -332,7 +332,9 @@ async function processDriverTravelCommand(
     actor_phone: actorPhone,
     message_body: body,
     latitude: null,
-    longitude: null
+    longitude: null,
+    location_accuracy: null,
+    location_label: null
   });
 
   if (eventError) {
@@ -766,7 +768,9 @@ function buildDriverCommandReply(
   eventTime: string,
   request: ActiveDriverTransferRow
 ) {
-  return `${command.reply(eventTime)}\n\n${buildDriverTransferSummary(request)}`;
+  return `${command.reply(
+    eventTime
+  )}\nUbicación: no recibida por WhatsApp Sandbox.\n\n${buildDriverTransferSummary(request)}`;
 }
 
 function buildDriverTransferSummary(request: ActiveDriverTransferRow) {

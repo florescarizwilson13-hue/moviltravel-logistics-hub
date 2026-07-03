@@ -232,7 +232,9 @@ export function RequestDetailView({ requestId }: { requestId: string }) {
         actorPhone: null,
         messageBody: input.messageBody,
         latitude: null,
-        longitude: null
+        longitude: null,
+        locationAccuracy: null,
+        locationLabel: null
       });
 
       setStore(snapshotWithEvent);
@@ -269,7 +271,9 @@ export function RequestDetailView({ requestId }: { requestId: string }) {
         actorPhone: null,
         messageBody: `Nuevo estado: ${TRANSFER_REQUEST_STATUS_LABELS[input.status]}. Nota: ${correctionNote}`,
         latitude: null,
-        longitude: null
+        longitude: null,
+        locationAccuracy: null,
+        locationLabel: null
       });
 
       setStore(snapshotWithEvent);
@@ -762,6 +766,7 @@ type TravelTimelineStep = {
   actor?: string | null;
   source?: string | null;
   detail?: string | null;
+  locationDetail?: string | null;
   isIncident?: boolean;
 };
 
@@ -806,6 +811,11 @@ function TravelTimelineStep({ step }: { step: TravelTimelineStep }) {
                 .join(" · ")}
             </p>
             {step.detail ? <p className="mt-1 text-muted-foreground">{step.detail}</p> : null}
+            {step.locationDetail ? (
+              <p className="mt-1 text-xs font-medium text-emerald-700">
+                Ubicación registrada · {step.locationDetail}
+              </p>
+            ) : null}
           </>
         ) : (
           <p className="mt-1 text-muted-foreground">Pendiente</p>
@@ -1138,7 +1148,8 @@ function buildTravelTimelineSteps({
       occurredAt: event.createdAt,
       actor: event.actorName ?? "Coordinación",
       source: getTravelEventSourceLabel(event.source),
-      detail: event.messageBody
+      detail: event.messageBody,
+      locationDetail: formatTravelEventLocation(event)
     });
   });
 
@@ -1244,6 +1255,7 @@ function buildTravelEventStep({
     occurredAt: event?.createdAt ?? (isDone ? request.updatedAt : null),
     actor: event?.actorName ?? assignedDriver?.fullName ?? null,
     source: event ? getTravelEventSourceLabel(event.source) : isDone ? "Sistema" : null,
+    locationDetail: event ? formatTravelEventLocation(event) : null,
     isIncident
   };
 }
@@ -1290,6 +1302,21 @@ function getTravelEventLabel(type: TravelEvent["type"]) {
   };
 
   return labels[type];
+}
+
+function formatTravelEventLocation(event: TravelEvent) {
+  if (event.latitude == null || event.longitude == null) {
+    return null;
+  }
+
+  const coordinates = `${event.latitude.toFixed(5)}, ${event.longitude.toFixed(5)}`;
+  const parts = [event.locationLabel?.trim() || null, coordinates];
+
+  if (event.locationAccuracy != null) {
+    parts.push(`Precisión ${Math.round(event.locationAccuracy)} m`);
+  }
+
+  return parts.filter(Boolean).join(" · ");
 }
 
 const manualTravelCorrectionStatuses: ManualTravelCorrectionStatus[] = [

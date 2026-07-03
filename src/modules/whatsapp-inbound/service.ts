@@ -1,4 +1,8 @@
 import { createSupabaseServerClient, createSupabaseServiceClient } from "@/lib/supabase/server";
+import {
+  formatPersonName,
+  normalizeChileanPhone
+} from "@/lib/formatters/operational-data";
 import { createAiCaptureService } from "@/modules/ai-capture";
 import {
   buildTransferRequestDraft,
@@ -29,6 +33,12 @@ export type WhatsappInboundResult = {
 
 const aiCaptureService = createAiCaptureService();
 const collectingWhatsappStatuses: TransferRequestStatus[] = ["draft", "incomplete"];
+const activeDriverTripStatuses: TransferRequestStatus[] = [
+  "assigned",
+  "driver_at_pickup",
+  "passenger_on_board",
+  "incident"
+];
 const newTransferIntentPatterns = [
   /\bnecesito\s+(?:un\s+)?traslado\b/i,
   /\bnuevo\s+traslado\b/i,
@@ -71,6 +81,37 @@ type TransferRequestIntakeRow = {
   metadata: Record<string, unknown>;
 };
 
+type DriverLookupRow = {
+  id: string;
+  full_name: string;
+  phone: string | null;
+  availability: string;
+};
+
+type ActiveDriverTransferRow = {
+  id: string;
+  passenger_name: string | null;
+  origin_address: string | null;
+  destination_address: string | null;
+  pickup_date: string | null;
+  pickup_time: string | null;
+  pickup_at: string | null;
+  assigned_driver_id: string | null;
+  status: TransferRequestStatus;
+  created_at: string;
+  updated_at: string;
+};
+
+type DriverCommand = {
+  command: "1" | "2" | "3" | "9";
+  eventType: "driver_at_pickup" | "passenger_on_board" | "completed" | "incident";
+  nextStatus: Extract<
+    TransferRequestStatus,
+    "driver_at_pickup" | "passenger_on_board" | "completed" | "incident"
+  >;
+  reply: (time: string) => string;
+};
+
 export async function processWhatsappInboundMessage(
   payload: TwilioWhatsappInboundPayload
 ): Promise<WhatsappInboundResult> {
@@ -84,8 +125,14 @@ export async function processWhatsappInboundMessage(
     };
   }
 
-  const analysis = await aiCaptureService.captureTransferRequest({ message: body });
   const supabase = await createTrustedSupabaseClient();
+  const driverResult = await processDriverTravelCommand(supabase, payload, body);
+
+  if (driverResult) {
+    return driverResult;
+  }
+
+  const analysis = await aiCaptureService.captureTransferRequest({ message: body });
   const existingRequest = await findLatestOpenWhatsappRequest(supabase, payload.From);
   const shouldCreateNewRequest =
     !existingRequest || isNewTransferIntent(body, analysis.capturedData, existingRequest);
@@ -138,6 +185,214 @@ export async function processWhatsappInboundMessage(
     analysis,
     reply
   };
+}
+
+async function processDriverTravelCommand(
+  supabase: Awaited<ReturnType<typeof createTrustedSupabaseClient>>,
+  payload: TwilioWhatsappInboundPayload,
+  body: string
+): Promise<WhatsappInboundResult | null> {
+  const driver = await findActiveDriverByWhatsappFrom(supabase, payload.From);
+
+  if (!driver) {
+    return null;
+  }
+
+  const command = parseDriverCommand(body);
+
+  if (!command) {
+    return {
+      requestId: null,
+      analysis: null,
+      reply: "Comando no reconocido. Usa: 1 Llegué al punto, 2 Salgo con pasajero, 3 Finalicé servicio, 9 Incidencia."
+    };
+  }
+
+  const activeTransfer = await findActiveTransferForDriver(supabase, driver.id);
+
+  if (activeTransfer.status === "none") {
+    return {
+      requestId: null,
+      analysis: null,
+      reply: "No encontramos un traslado activo asignado a tu teléfono. Contacta a coordinación."
+    };
+  }
+
+  if (activeTransfer.status === "ambiguous") {
+    return {
+      requestId: null,
+      analysis: null,
+      reply: "Tienes más de un traslado activo con horario similar. Contacta a coordinación para registrar el avance."
+    };
+  }
+
+  const eventTime = formatCurrentWhatsappTime();
+  const request = activeTransfer.request;
+  const actorPhone = normalizeWhatsappPhone(payload.From) ?? normalizeChileanPhone(driver.phone);
+  const { error: updateError } = await supabase
+    .from("transfer_requests")
+    .update({ status: command.nextStatus })
+    .eq("id", request.id);
+
+  if (updateError) {
+    throw new Error(`No se pudo actualizar el estado del traslado: ${updateError.message}`);
+  }
+
+  const { error: eventError } = await supabase.from("travel_events").insert({
+    transfer_request_id: request.id,
+    type: command.eventType,
+    source: "whatsapp_driver",
+    actor_type: "driver",
+    actor_name: formatPersonName(driver.full_name),
+    actor_phone: actorPhone,
+    message_body: body,
+    latitude: null,
+    longitude: null
+  });
+
+  if (eventError) {
+    throw new Error(`No se pudo registrar el evento de viaje: ${eventError.message}`);
+  }
+
+  return {
+    requestId: request.id,
+    analysis: null,
+    reply: command.reply(eventTime)
+  };
+}
+
+async function findActiveDriverByWhatsappFrom(
+  supabase: Awaited<ReturnType<typeof createTrustedSupabaseClient>>,
+  from: string | undefined
+) {
+  const fromPhone = normalizeWhatsappPhone(from);
+
+  if (!fromPhone) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("drivers")
+    .select("id, full_name, phone, availability")
+    .neq("availability", "inactive");
+
+  if (error) {
+    throw new Error(`No se pudo validar el conductor: ${error.message}`);
+  }
+
+  return (
+    ((data ?? []) as DriverLookupRow[]).find(
+      (driver) => normalizeChileanPhone(driver.phone) === fromPhone
+    ) ?? null
+  );
+}
+
+async function findActiveTransferForDriver(
+  supabase: Awaited<ReturnType<typeof createTrustedSupabaseClient>>,
+  driverId: string
+): Promise<
+  | { status: "none" }
+  | { status: "ambiguous" }
+  | { status: "found"; request: ActiveDriverTransferRow }
+> {
+  const { data, error } = await supabase
+    .from("transfer_requests")
+    .select(
+      "id, passenger_name, origin_address, destination_address, pickup_date, pickup_time, pickup_at, assigned_driver_id, status, created_at, updated_at"
+    )
+    .eq("assigned_driver_id", driverId)
+    .in("status", activeDriverTripStatuses);
+
+  if (error) {
+    throw new Error(`No se pudo buscar el traslado activo del conductor: ${error.message}`);
+  }
+
+  const candidates = ((data ?? []) as ActiveDriverTransferRow[]).sort(compareTransfersByProximity);
+
+  if (candidates.length === 0) {
+    return { status: "none" };
+  }
+
+  if (
+    candidates.length > 1 &&
+    getTransferScheduleKey(candidates[0]) === getTransferScheduleKey(candidates[1])
+  ) {
+    return { status: "ambiguous" };
+  }
+
+  return { status: "found", request: candidates[0] };
+}
+
+function parseDriverCommand(body: string): DriverCommand | null {
+  const command = body.trim().match(/^[1239]\b/)?.[0] as DriverCommand["command"] | undefined;
+
+  if (!command) {
+    return null;
+  }
+
+  const commands: Record<DriverCommand["command"], DriverCommand> = {
+    "1": {
+      command: "1",
+      eventType: "driver_at_pickup",
+      nextStatus: "driver_at_pickup",
+      reply: (time) => `Registrado: llegaste al punto de origen a las ${time}.`
+    },
+    "2": {
+      command: "2",
+      eventType: "passenger_on_board",
+      nextStatus: "passenger_on_board",
+      reply: (time) => `Registrado: salida con pasajero a las ${time}. Buen viaje.`
+    },
+    "3": {
+      command: "3",
+      eventType: "completed",
+      nextStatus: "completed",
+      reply: (time) => `Servicio finalizado registrado a las ${time}. Gracias.`
+    },
+    "9": {
+      command: "9",
+      eventType: "incident",
+      nextStatus: "incident",
+      reply: () => "Incidencia registrada. La coordinación revisará el caso."
+    }
+  };
+
+  return commands[command];
+}
+
+function normalizeWhatsappPhone(value: string | undefined) {
+  return normalizeChileanPhone(normalizeWhatsappAddress(value));
+}
+
+function compareTransfersByProximity(first: ActiveDriverTransferRow, second: ActiveDriverTransferRow) {
+  const now = Date.now();
+  return Math.abs(getTransferScheduleTime(first) - now) - Math.abs(getTransferScheduleTime(second) - now);
+}
+
+function getTransferScheduleTime(request: ActiveDriverTransferRow) {
+  const value =
+    request.pickup_at ??
+    (request.pickup_date && request.pickup_time
+      ? `${request.pickup_date}T${request.pickup_time}`
+      : request.pickup_date) ??
+    request.updated_at ??
+    request.created_at;
+  const time = new Date(value).getTime();
+
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function getTransferScheduleKey(request: ActiveDriverTransferRow) {
+  return request.pickup_at ?? `${request.pickup_date ?? ""} ${request.pickup_time ?? ""}`.trim();
+}
+
+function formatCurrentWhatsappTime() {
+  return new Intl.DateTimeFormat("es-CL", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "America/Santiago"
+  }).format(new Date());
 }
 
 async function findLatestOpenWhatsappRequest(

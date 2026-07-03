@@ -12,7 +12,8 @@ const EMPTY_LOGISTICS_SNAPSHOT: LogisticsSnapshot = {
   requests: [],
   drivers: [],
   messages: [],
-  communicationEvents: []
+  communicationEvents: [],
+  travelEvents: []
 };
 
 export function useLocalLogisticsStore() {

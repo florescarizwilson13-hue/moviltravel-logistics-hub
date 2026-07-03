@@ -20,7 +20,8 @@ import type {
   CommunicationRecipientType,
   CreateTransferRequestInput,
   Driver,
-  RequestMessage
+  RequestMessage,
+  TravelEvent
 } from "@/types";
 import { RequestForm } from "./request-form";
 import { RequestStatusBadge } from "./request-status-badge";
@@ -61,6 +62,10 @@ export function RequestDetailView({ requestId }: { requestId: string }) {
   const requestCommunicationEvents = useMemo(
     () => (store ? repositories.communicationEvents.listByRequest(store, requestId) : []),
     [requestId, repositories.communicationEvents, store]
+  );
+  const requestTravelEvents = useMemo(
+    () => (store ? repositories.travelEvents.listByRequest(store, requestId) : []),
+    [requestId, repositories.travelEvents, store]
   );
   const drivers = store?.drivers ?? [];
   const availableDrivers = drivers.filter((driver) => driver.availability === "available");
@@ -490,6 +495,8 @@ export function RequestDetailView({ requestId }: { requestId: string }) {
 
       <CommunicationHistory events={requestCommunicationEvents} />
 
+      <TravelTrackingHistory events={requestTravelEvents} />
+
       {isAssigned ? (
         <>
           {missingDataSection}
@@ -497,6 +504,39 @@ export function RequestDetailView({ requestId }: { requestId: string }) {
         </>
       ) : null}
     </div>
+  );
+}
+
+function TravelTrackingHistory({ events }: { events: TravelEvent[] }) {
+  return (
+    <section className="rounded-lg border bg-card p-5">
+      <h4 className="font-medium">Seguimiento del viaje</h4>
+      {events.length > 0 ? (
+        <div className="mt-3 divide-y rounded-md border">
+          {events.map((event) => (
+            <div
+              key={event.id}
+              className="grid gap-1 px-3 py-2 text-sm md:grid-cols-[160px_1.4fr_1fr_auto] md:items-center"
+            >
+              <span className="font-medium text-foreground">
+                {formatCommunicationDate(event.createdAt)}
+              </span>
+              <span>{getTravelEventLabel(event.type)}</span>
+              <span className="text-muted-foreground">
+                {event.actorName ?? "Conductor pendiente"}
+              </span>
+              <span className="text-xs font-medium uppercase tracking-wide text-emerald-700">
+                WhatsApp
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-2 text-sm text-muted-foreground">
+          Todavía no hay eventos de viaje registrados.
+        </p>
+      )}
+    </section>
   );
 }
 
@@ -739,6 +779,17 @@ function getCommunicationEventLabel(type: CommunicationEventType) {
     whatsapp_driver_copied: "WhatsApp conductor copiado",
     whatsapp_passenger_marked_sent: "WhatsApp pasajero marcado como enviado",
     whatsapp_driver_marked_sent: "WhatsApp conductor marcado como enviado"
+  };
+
+  return labels[type];
+}
+
+function getTravelEventLabel(type: TravelEvent["type"]) {
+  const labels: Record<TravelEvent["type"], string> = {
+    driver_at_pickup: "Conductor llegó al origen",
+    passenger_on_board: "Pasajero a bordo",
+    completed: "Servicio finalizado",
+    incident: "Incidencia reportada"
   };
 
   return labels[type];

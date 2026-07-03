@@ -7,7 +7,9 @@ import type {
   Driver,
   MessageStatus,
   RequestMessage,
-  TransferRequest
+  TransferRequest,
+  TravelEvent,
+  CreateTravelEventInput
 } from "@/types";
 import type { buildDashboardOverview } from "@/modules/dashboard";
 
@@ -18,6 +20,7 @@ export type LogisticsSnapshot = {
   drivers: Driver[];
   messages: RequestMessage[];
   communicationEvents: CommunicationEvent[];
+  travelEvents: TravelEvent[];
 };
 
 export type TransferRequestRepository = {
@@ -89,6 +92,14 @@ export type CommunicationEventRepository = {
   ): LogisticsSnapshot | Promise<LogisticsSnapshot>;
 };
 
+export type TravelEventRepository = {
+  listByRequest(snapshot: LogisticsSnapshot, requestId: string): TravelEvent[];
+  create(
+    snapshot: LogisticsSnapshot,
+    input: CreateTravelEventInput
+  ): LogisticsSnapshot | Promise<LogisticsSnapshot>;
+};
+
 export type AiConversationRepository = {
   list(): Promise<AiConversation[]>;
   save(conversation: AiConversation): Promise<AiConversation>;
@@ -107,6 +118,7 @@ export type LogisticsRepositories = {
   drivers: DriverRepository;
   messages: MessageRepository;
   communicationEvents: CommunicationEventRepository;
+  travelEvents: TravelEventRepository;
   aiConversations: AiConversationRepository;
   dashboard: DashboardRepository;
 };

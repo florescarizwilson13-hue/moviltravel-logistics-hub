@@ -8,9 +8,12 @@ const statusClasses: Record<TransferRequestStatus, string> = {
   pending_review: "border-sky-300 bg-sky-50 text-sky-800",
   ready_to_assign: "border-emerald-300 bg-emerald-50 text-emerald-800",
   assigned: "border-indigo-300 bg-indigo-50 text-indigo-800",
+  driver_at_pickup: "border-blue-300 bg-blue-50 text-blue-800",
+  passenger_on_board: "border-violet-300 bg-violet-50 text-violet-800",
   confirmed: "border-cyan-300 bg-cyan-50 text-cyan-800",
   in_progress: "border-blue-300 bg-blue-50 text-blue-800",
   completed: "border-zinc-300 bg-zinc-50 text-zinc-800",
+  incident: "border-orange-300 bg-orange-50 text-orange-800",
   cancelled: "border-red-300 bg-red-50 text-red-800"
 };
 

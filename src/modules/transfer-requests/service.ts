@@ -47,7 +47,19 @@ export function normalizeTransferRequestInput(
 }
 
 export function refreshTransferRequestStatus(request: TransferRequest): TransferRequest {
-  if (["ready_to_assign", "assigned", "confirmed", "in_progress", "completed", "cancelled"].includes(request.status)) {
+  if (
+    [
+      "ready_to_assign",
+      "assigned",
+      "driver_at_pickup",
+      "passenger_on_board",
+      "confirmed",
+      "in_progress",
+      "completed",
+      "incident",
+      "cancelled"
+    ].includes(request.status)
+  ) {
     return request;
   }
 

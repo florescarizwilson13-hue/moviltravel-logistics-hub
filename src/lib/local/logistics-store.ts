@@ -27,7 +27,8 @@ import type {
   GeneratedWhatsappMessage,
   CommunicationEvent,
   RequestMessage,
-  TransferRequest
+  TransferRequest,
+  TravelEvent
 } from "@/types";
 
 const STORAGE_KEY = "moviltravel-logistics-hub:local-store:v2";
@@ -37,6 +38,7 @@ export type LocalLogisticsStore = {
   drivers: Driver[];
   messages: RequestMessage[];
   communicationEvents: CommunicationEvent[];
+  travelEvents: TravelEvent[];
 };
 
 export function loadLocalLogisticsStore(): LocalLogisticsStore {
@@ -229,7 +231,8 @@ function createInitialStore(): LocalLogisticsStore {
     requests: MOCK_TRANSFER_REQUESTS,
     drivers: MOCK_DRIVERS,
     messages: [],
-    communicationEvents: []
+    communicationEvents: [],
+    travelEvents: []
   };
 }
 
@@ -239,6 +242,7 @@ function normalizeLocalLogisticsStore(store: LocalLogisticsStore): LocalLogistic
   return {
     ...store,
     communicationEvents: store.communicationEvents ?? [],
+    travelEvents: store.travelEvents ?? [],
     drivers: store.drivers.map((driver) => ({
       ...driver,
       fullName: formatPersonName(driver.fullName),

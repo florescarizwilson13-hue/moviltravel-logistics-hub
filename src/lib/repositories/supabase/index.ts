@@ -26,7 +26,9 @@ import type {
   GeneratedWhatsappMessage,
   RequestMessage,
   TransferRequest,
-  TransferRequestStatus
+  TransferRequestStatus,
+  TravelEvent,
+  CreateTravelEventInput
 } from "@/types";
 
 type DriverRow = {
@@ -98,6 +100,20 @@ type CommunicationEventRow = {
   created_at: string;
 };
 
+type TravelEventRow = {
+  id: string;
+  transfer_request_id: string;
+  type: TravelEvent["type"];
+  source: TravelEvent["source"];
+  actor_type: TravelEvent["actorType"];
+  actor_name: string | null;
+  actor_phone: string | null;
+  message_body: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  created_at: string;
+};
+
 const driverSelect =
   "id, full_name, phone, email, license_number, vehicle_name, vehicle_plate, vehicle_capacity, availability, is_seed, notes, created_at, updated_at";
 
@@ -109,6 +125,9 @@ const requestMessageSelect =
 
 const communicationEventSelect =
   "id, transfer_request_id, type, channel, recipient_type, recipient_name, recipient_phone, message_body, created_by, created_at";
+
+const travelEventSelect =
+  "id, transfer_request_id, type, source, actor_type, actor_name, actor_phone, message_body, latitude, longitude, created_at";
 
 function notImplemented(operation: string): never {
   throw new Error(
@@ -206,6 +225,22 @@ function mapCommunicationEventRow(row: CommunicationEventRow): CommunicationEven
     recipientPhone: row.recipient_phone,
     messageBody: row.message_body,
     createdBy: row.created_by,
+    createdAt: row.created_at
+  };
+}
+
+function mapTravelEventRow(row: TravelEventRow): TravelEvent {
+  return {
+    id: row.id,
+    transferRequestId: row.transfer_request_id,
+    type: row.type,
+    source: row.source,
+    actorType: row.actor_type,
+    actorName: row.actor_name,
+    actorPhone: row.actor_phone,
+    messageBody: row.message_body,
+    latitude: row.latitude,
+    longitude: row.longitude,
     createdAt: row.created_at
   };
 }
@@ -383,6 +418,34 @@ function mapCommunicationEventForInsert(input: CreateCommunicationEventInput) {
   };
 }
 
+async function listSupabaseTravelEvents() {
+  const supabase = createSupabaseBrowserClient();
+  const { data, error } = await supabase
+    .from("travel_events")
+    .select(travelEventSelect)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    throw formatSupabaseError("listar seguimiento de viajes", error);
+  }
+
+  return (data ?? []).map((row) => mapTravelEventRow(row as TravelEventRow));
+}
+
+function mapTravelEventForInsert(input: CreateTravelEventInput) {
+  return {
+    transfer_request_id: input.transferRequestId,
+    type: input.type,
+    source: input.source,
+    actor_type: input.actorType,
+    actor_name: input.actorName ?? null,
+    actor_phone: input.actorPhone ?? null,
+    message_body: input.messageBody ?? null,
+    latitude: input.latitude ?? null,
+    longitude: input.longitude ?? null
+  };
+}
+
 async function saveSupabaseAssignmentMessages(
   request: TransferRequest,
   driver: Driver
@@ -425,18 +488,20 @@ export function createSupabaseRepositories(): LogisticsRepositories {
     ...localRepositories,
     provider: "supabase",
     async refreshSnapshot(snapshot) {
-      const [drivers, requests, messages, communicationEvents] = await Promise.all([
+      const [drivers, requests, messages, communicationEvents, travelEvents] = await Promise.all([
         listSupabaseDrivers(),
         listSupabaseTransferRequests(),
         listSupabaseRequestMessages(),
-        listSupabaseCommunicationEvents()
+        listSupabaseCommunicationEvents(),
+        listSupabaseTravelEvents()
       ]);
       return {
         ...snapshot,
         requests,
         drivers,
         messages,
-        communicationEvents
+        communicationEvents,
+        travelEvents
       };
     },
     transferRequests: {
@@ -755,6 +820,32 @@ export function createSupabaseRepositories(): LogisticsRepositories {
         return {
           ...snapshot,
           communicationEvents: [event, ...snapshot.communicationEvents]
+        };
+      }
+    },
+    travelEvents: {
+      listByRequest(snapshot, requestId) {
+        return snapshot.travelEvents
+          .filter((event) => event.transferRequestId === requestId)
+          .sort((first, second) => second.createdAt.localeCompare(first.createdAt));
+      },
+      async create(snapshot, input) {
+        const supabase = createSupabaseBrowserClient();
+        const { data, error } = await supabase
+          .from("travel_events")
+          .insert(mapTravelEventForInsert(input))
+          .select(travelEventSelect)
+          .single();
+
+        if (error) {
+          throw formatSupabaseError("registrar evento de viaje", error);
+        }
+
+        const event = mapTravelEventRow(data as TravelEventRow);
+
+        return {
+          ...snapshot,
+          travelEvents: [event, ...snapshot.travelEvents]
         };
       }
     },

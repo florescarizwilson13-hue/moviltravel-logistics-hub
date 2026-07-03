@@ -98,6 +98,25 @@ export function createLocalRepositories(): LogisticsRepositories {
         };
       }
     },
+    travelEvents: {
+      listByRequest(snapshot, requestId) {
+        return snapshot.travelEvents
+          .filter((event) => event.transferRequestId === requestId)
+          .sort((first, second) => second.createdAt.localeCompare(first.createdAt));
+      },
+      create(snapshot, input) {
+        const event = {
+          id: crypto.randomUUID(),
+          ...input,
+          createdAt: new Date().toISOString()
+        };
+
+        return {
+          ...snapshot,
+          travelEvents: [event, ...snapshot.travelEvents]
+        };
+      }
+    },
     aiConversations: {
       async list() {
         return [];

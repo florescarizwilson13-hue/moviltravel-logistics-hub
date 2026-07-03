@@ -4,6 +4,13 @@ import { useState } from "react";
 import { DriverForm } from "@/components/drivers/driver-form";
 import { Button } from "@/components/ui/button";
 import { useLocalLogisticsStore } from "@/hooks/use-local-logistics-store";
+import {
+  formatDisplayName,
+  formatPersonName,
+  formatVehicleCapacity,
+  normalizeChileanPhone,
+  normalizeVehiclePlate
+} from "@/lib/formatters/operational-data";
 import type { CreateDriverInput, Driver } from "@/types";
 
 export function DriversManager() {
@@ -150,58 +157,86 @@ export function DriversManager() {
           </Button>
         </div>
         <div className="divide-y">
-          {store.drivers.length > 0 ? store.drivers.map((driver) => (
-            <article key={driver.id} className="grid gap-4 px-5 py-4 lg:grid-cols-[1fr_auto]">
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <h4 className="font-semibold">{driver.fullName}</h4>
-                  <StatusBadge isActive={driver.availability === "available"} />
-                  {driver.isSeed ? (
-                    <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800">
-                      Registro inicial editable
-                    </span>
-                  ) : null}
+          {store.drivers.length > 0 ? store.drivers.map((driver) => {
+            const driverName = formatPersonName(driver.fullName);
+            const driverPhone = normalizeChileanPhone(driver.phone);
+            const vehicleName = driver.vehicleName ? formatDisplayName(driver.vehicleName) : null;
+            const vehiclePlate = normalizeVehiclePlate(driver.vehiclePlate);
+
+            return (
+              <article key={driver.id} className="grid gap-4 px-5 py-4 lg:grid-cols-[1fr_auto]">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h4 className="font-semibold">{driverName}</h4>
+                    <StatusBadge availability={driver.availability} />
+                    {driver.isSeed ? (
+                      <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800">
+                        Registro inicial editable
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="mt-3 space-y-1 text-sm">
+                    <p className="text-muted-foreground">
+                      Teléfono:{" "}
+                      <span className="font-medium text-foreground">
+                        {driverPhone ?? "Teléfono pendiente"}
+                      </span>
+                    </p>
+                    <p className="text-muted-foreground">
+                      Vehículo:{" "}
+                      <span className="font-medium text-foreground">
+                        {vehicleName ?? "Vehículo pendiente"}
+                      </span>{" "}
+                      · Patente:{" "}
+                      <span className="font-medium text-foreground">
+                        {vehiclePlate ?? "Patente pendiente"}
+                      </span>{" "}
+                      · Capacidad:{" "}
+                      <span className="font-medium text-foreground">
+                        {formatVehicleCapacity(driver.vehicleCapacity)}
+                      </span>
+                    </p>
+                    {driver.email || driver.notes ? (
+                      <p className="text-muted-foreground">
+                        {[driver.email ? `Email: ${driver.email}` : null, driver.notes ? `Notas: ${driver.notes}` : null]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
+                    ) : null}
+                  </div>
                 </div>
-                <div className="mt-3 grid gap-2 text-sm md:grid-cols-2 lg:grid-cols-3">
-                  <p>Teléfono: {driver.phone || "Pendiente"}</p>
-                  <p>Email: {driver.email || "Opcional"}</p>
-                  <p>Vehículo: {driver.vehicleName || "Pendiente"}</p>
-                  <p>Patente: {driver.vehiclePlate || "Pendiente"}</p>
-                  <p>Capacidad: {driver.vehicleCapacity ?? "Pendiente"}</p>
-                  <p>Notas: {driver.notes || "Sin notas"}</p>
-                </div>
-              </div>
-              <div className="flex flex-wrap items-start gap-2 lg:justify-end">
-                <Button type="button" onClick={() => openEditForm(driver.id)}>
-                  Editar
-                </Button>
-                {driver.availability === "available" ? (
+                <div className="flex flex-wrap items-start gap-2 lg:justify-end">
+                  <Button type="button" onClick={() => openEditForm(driver.id)}>
+                    Editar
+                  </Button>
+                  {driver.availability === "available" ? (
+                    <button
+                      type="button"
+                      className="inline-flex h-9 items-center rounded-md border px-3 text-sm font-medium hover:bg-muted"
+                      onClick={() => handleActiveState(driver, false)}
+                    >
+                      Desactivar
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="inline-flex h-9 items-center rounded-md border px-3 text-sm font-medium hover:bg-muted"
+                      onClick={() => handleActiveState(driver, true)}
+                    >
+                      Activar
+                    </button>
+                  )}
                   <button
                     type="button"
-                    className="inline-flex h-9 items-center rounded-md border px-3 text-sm font-medium hover:bg-muted"
-                    onClick={() => handleActiveState(driver, false)}
+                    className="inline-flex h-9 items-center rounded-md border border-red-200 px-3 text-sm font-medium text-red-700 hover:bg-red-50"
+                    onClick={() => handleDelete(driver)}
                   >
-                    Desactivar
+                    Eliminar
                   </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="inline-flex h-9 items-center rounded-md border px-3 text-sm font-medium hover:bg-muted"
-                    onClick={() => handleActiveState(driver, true)}
-                  >
-                    Activar
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="inline-flex h-9 items-center rounded-md border border-red-200 px-3 text-sm font-medium text-red-700 hover:bg-red-50"
-                  onClick={() => handleDelete(driver)}
-                >
-                  Eliminar
-                </button>
-              </div>
-            </article>
-          )) : (
+                </div>
+              </article>
+            );
+          }) : (
             <p className="px-5 py-4 text-sm text-muted-foreground">
               No hay conductores registrados. Usa Nuevo conductor para crear el primero.
             </p>
@@ -242,7 +277,10 @@ export function DriversManager() {
   );
 }
 
-function StatusBadge({ isActive }: { isActive: boolean }) {
+function StatusBadge({ availability }: { availability: Driver["availability"] }) {
+  const isActive = availability === "available";
+  const label = isActive ? "Activo" : availability === "busy" ? "Ocupado" : "Inactivo";
+
   return (
     <span
       className={`rounded-md border px-2 py-1 text-xs font-medium ${
@@ -251,7 +289,7 @@ function StatusBadge({ isActive }: { isActive: boolean }) {
           : "border-zinc-300 bg-zinc-50 text-zinc-700"
       }`}
     >
-      {isActive ? "Activo" : "Inactivo"}
+      {label}
     </span>
   );
 }

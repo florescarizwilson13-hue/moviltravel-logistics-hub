@@ -1,10 +1,18 @@
+import {
+  formatDisplayName,
+  formatPersonName,
+  normalizeChileanPhone,
+  normalizeVehiclePlate
+} from "@/lib/formatters/operational-data";
 import type { CreateDriverInput, Driver } from "@/types";
 
 export function buildDriverProfile(input: CreateDriverInput) {
   return {
     ...input,
-    vehicleName: input.vehicleName ?? null,
-    vehiclePlate: input.vehiclePlate ?? null,
+    fullName: formatPersonName(input.fullName),
+    phone: normalizeChileanPhone(input.phone),
+    vehicleName: input.vehicleName ? formatDisplayName(input.vehicleName) : null,
+    vehiclePlate: normalizeVehiclePlate(input.vehiclePlate),
     vehicleCapacity: input.vehicleCapacity ?? null,
     isSeed: false,
     availability: input.availability ?? "available"

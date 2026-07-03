@@ -1,4 +1,10 @@
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import {
+  formatDisplayName,
+  formatPersonName,
+  normalizeChileanPhone,
+  normalizeVehiclePlate
+} from "@/lib/formatters/operational-data";
 import { buildDashboardOverview } from "@/modules/dashboard";
 import { prepareAssignmentWhatsappMessages } from "@/modules/messaging";
 import {
@@ -113,12 +119,12 @@ function notImplemented(operation: string): never {
 function mapDriverRow(row: DriverRow): Driver {
   return {
     id: row.id,
-    fullName: row.full_name,
-    phone: row.phone,
+    fullName: formatPersonName(row.full_name),
+    phone: normalizeChileanPhone(row.phone),
     email: row.email,
     licenseNumber: row.license_number,
-    vehicleName: row.vehicle_name,
-    vehiclePlate: row.vehicle_plate,
+    vehicleName: row.vehicle_name ? formatDisplayName(row.vehicle_name) : row.vehicle_name,
+    vehiclePlate: normalizeVehiclePlate(row.vehicle_plate),
     vehicleCapacity: row.vehicle_capacity,
     availability: row.availability,
     isSeed: row.is_seed,
@@ -130,12 +136,12 @@ function mapDriverRow(row: DriverRow): Driver {
 
 function mapDriverInput(input: CreateDriverInput) {
   return {
-    full_name: input.fullName,
-    phone: input.phone ?? null,
+    full_name: formatPersonName(input.fullName),
+    phone: normalizeChileanPhone(input.phone),
     email: input.email ?? null,
     license_number: input.licenseNumber ?? null,
-    vehicle_name: input.vehicleName ?? null,
-    vehicle_plate: input.vehiclePlate ?? null,
+    vehicle_name: input.vehicleName ? formatDisplayName(input.vehicleName) : null,
+    vehicle_plate: normalizeVehiclePlate(input.vehiclePlate),
     vehicle_capacity: input.vehicleCapacity ?? null,
     availability: input.availability ?? "available",
     is_seed: false,

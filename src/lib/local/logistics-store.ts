@@ -2,6 +2,12 @@
 
 import { MOCK_DRIVERS, MOCK_TRANSFER_REQUESTS } from "@/lib/local/mock-data";
 import {
+  formatDisplayName,
+  formatPersonName,
+  normalizeChileanPhone,
+  normalizeVehiclePlate
+} from "@/lib/formatters/operational-data";
+import {
   buildDriverProfile,
   setDriverActiveState,
   updateDriverProfile
@@ -235,6 +241,10 @@ function normalizeLocalLogisticsStore(store: LocalLogisticsStore): LocalLogistic
     communicationEvents: store.communicationEvents ?? [],
     drivers: store.drivers.map((driver) => ({
       ...driver,
+      fullName: formatPersonName(driver.fullName),
+      phone: normalizeChileanPhone(driver.phone),
+      vehicleName: driver.vehicleName ? formatDisplayName(driver.vehicleName) : driver.vehicleName,
+      vehiclePlate: normalizeVehiclePlate(driver.vehiclePlate),
       availability: driver.availability === "busy" ? "inactive" : driver.availability,
       isSeed: driver.isSeed ?? seedIds.has(driver.id)
     }))

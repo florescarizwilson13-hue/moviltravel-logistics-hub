@@ -22,6 +22,7 @@ import type {
   Driver,
   RequestMessage,
   TransferRequest,
+  TransferRequestStatus,
   TravelEvent
 } from "@/types";
 import { RequestForm } from "./request-form";
@@ -206,6 +207,35 @@ export function RequestDetailView({ requestId }: { requestId: string }) {
 
       setStore(nextSnapshot);
       setNotice("Mensaje marcado como enviado manualmente.");
+    });
+  }
+
+  async function handleManualTravelEvent(input: ManualTravelEventAction) {
+    if (!store || !request) {
+      return;
+    }
+
+    await runRequestAction(async () => {
+      const requestInput = buildRequestStatusUpdateInput(request, input.nextStatus);
+      const snapshotWithStatus = await repositories.transferRequests.update(
+        store,
+        request.id,
+        requestInput
+      );
+      const snapshotWithEvent = await repositories.travelEvents.create(snapshotWithStatus, {
+        transferRequestId: request.id,
+        type: input.eventType,
+        source: "manual",
+        actorType: "coordinator",
+        actorName: "Coordinación",
+        actorPhone: null,
+        messageBody: input.messageBody,
+        latitude: null,
+        longitude: null
+      });
+
+      setStore(snapshotWithEvent);
+      setNotice("Hito del viaje registrado manualmente.");
     });
   }
 
@@ -501,6 +531,8 @@ export function RequestDetailView({ requestId }: { requestId: string }) {
         events={requestTravelEvents}
         assignedDriver={assignedDriver}
         messages={requestMessages}
+        isSaving={isSaving}
+        onManualEvent={handleManualTravelEvent}
       />
 
       {isAssigned ? (
@@ -517,15 +549,20 @@ function TravelTrackingHistory({
   request,
   events,
   assignedDriver,
-  messages
+  messages,
+  isSaving,
+  onManualEvent
 }: {
   request: TransferRequest;
   events: TravelEvent[];
   assignedDriver?: Driver;
   messages: RequestMessage[];
+  isSaving: boolean;
+  onManualEvent: (input: ManualTravelEventAction) => void;
 }) {
   const steps = buildTravelTimelineSteps({ request, events, assignedDriver, messages });
   const hasIncident = steps.some((step) => step.kind === "incident" && step.status === "done");
+  const actions = getManualTravelActions(request.status);
 
   return (
     <section
@@ -540,9 +577,31 @@ function TravelTrackingHistory({
             Los hitos pueden registrarse desde WhatsApp del conductor usando: 1 Llegué, 2 Salgo
             con pasajero, 3 Finalicé, 9 Incidencia.
           </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            También puedes registrar hitos manualmente si el conductor informa por llamada.
+          </p>
         </div>
         <RequestStatusBadge status={request.status} />
       </div>
+      {actions.length > 0 ? (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {actions.map((action) => (
+            <Button
+              key={action.eventType}
+              type="button"
+              className={
+                action.eventType === "incident"
+                  ? "border border-orange-300 bg-white text-orange-800 hover:bg-orange-50"
+                  : ""
+              }
+              disabled={isSaving}
+              onClick={() => onManualEvent(action)}
+            >
+              {isSaving ? "Registrando..." : action.label}
+            </Button>
+          ))}
+        </div>
+      ) : null}
       <div className="mt-4 space-y-3">
         {steps.map((step) => (
           <TravelTimelineStep key={step.kind} step={step} />
@@ -551,6 +610,16 @@ function TravelTrackingHistory({
     </section>
   );
 }
+
+type ManualTravelEventAction = {
+  label: string;
+  eventType: TravelEvent["type"];
+  nextStatus: Extract<
+    TransferRequestStatus,
+    "driver_at_pickup" | "passenger_on_board" | "completed" | "incident"
+  >;
+  messageBody: string;
+};
 
 type TravelTimelineStep = {
   kind: "assigned" | TravelEvent["type"];
@@ -918,6 +987,80 @@ function buildTravelTimelineSteps({
   return steps;
 }
 
+function getManualTravelActions(status: TransferRequestStatus): ManualTravelEventAction[] {
+  const incidentAction: ManualTravelEventAction = {
+    label: "Registrar incidencia",
+    eventType: "incident",
+    nextStatus: "incident",
+    messageBody: "Incidencia registrada manualmente"
+  };
+
+  if (status === "assigned") {
+    return [
+      {
+        label: "Registrar llegada al origen",
+        eventType: "driver_at_pickup",
+        nextStatus: "driver_at_pickup",
+        messageBody: "Llegada al origen registrada manualmente"
+      },
+      incidentAction
+    ];
+  }
+
+  if (status === "driver_at_pickup") {
+    return [
+      {
+        label: "Registrar salida con pasajero",
+        eventType: "passenger_on_board",
+        nextStatus: "passenger_on_board",
+        messageBody: "Salida con pasajero registrada manualmente"
+      },
+      incidentAction
+    ];
+  }
+
+  if (status === "passenger_on_board") {
+    return [
+      {
+        label: "Finalizar servicio",
+        eventType: "completed",
+        nextStatus: "completed",
+        messageBody: "Servicio finalizado manualmente"
+      },
+      incidentAction
+    ];
+  }
+
+  return [];
+}
+
+function buildRequestStatusUpdateInput(
+  request: TransferRequest,
+  status: TransferRequestStatus
+): CreateTransferRequestInput {
+  return {
+    companyId: request.companyId,
+    companyName: request.companyName,
+    requesterName: request.requesterName,
+    requesterPhone: request.requesterPhone,
+    requesterEmail: request.requesterEmail,
+    passengerName: request.passengerName,
+    passengerPhone: request.passengerPhone,
+    originAddress: request.originAddress,
+    destinationAddress: request.destinationAddress,
+    pickupDate: request.pickupDate,
+    pickupTime: request.pickupTime,
+    pickupAt: request.pickupAt,
+    passengerCount: request.passengerCount,
+    cargoDescription: request.cargoDescription,
+    specialRequirements: request.specialRequirements,
+    notes: request.notes,
+    assignedDriverId: request.assignedDriverId,
+    assignedVehicleId: request.assignedVehicleId,
+    status
+  };
+}
+
 function buildTravelEventStep({
   kind,
   title,
@@ -975,7 +1118,7 @@ const travelStatusOrder: string[] = [
 ];
 
 function getTravelEventSourceLabel(source: TravelEvent["source"]) {
-  return source === "whatsapp_driver" ? "WhatsApp conductor" : "Sistema";
+  return source === "whatsapp_driver" ? "WhatsApp conductor" : "Manual";
 }
 
 function getTravelEventLabel(type: TravelEvent["type"]) {

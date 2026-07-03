@@ -8,8 +8,8 @@ export type TravelEvent = {
   id: string;
   transferRequestId: string;
   type: TravelEventType;
-  source: "whatsapp_driver";
-  actorType: "driver";
+  source: "whatsapp_driver" | "manual";
+  actorType: "driver" | "coordinator";
   actorName?: string | null;
   actorPhone?: string | null;
   messageBody?: string | null;

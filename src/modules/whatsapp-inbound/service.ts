@@ -59,6 +59,14 @@ const selectedTripTtlHours = 12;
 const operableTripsPastWindowHours = 2;
 const operableTripsFutureWindowHours = 12;
 const maxDriverTripsShown = 5;
+const outboundOperationalReply =
+  "Mensaje informativo registrado. Si necesitas otro traslado, escríbenos los datos del nuevo servicio.";
+const outboundOperationalMessagePatterns = [
+  "✅ traslado asignado",
+  "🚘 nuevo traslado asignado",
+  "conductor asignado",
+  "gracias por coordinar con moviltravel"
+];
 const newTransferIntentPatterns = [
   /\bnecesito\s+(?:un\s+)?traslado\b/i,
   /\bnuevo\s+traslado\b/i,
@@ -164,6 +172,14 @@ export async function processWhatsappInboundMessage(
     return driverResult;
   }
 
+  if (isMoviltravelOutboundOperationalMessage(body)) {
+    return {
+      requestId: null,
+      analysis: null,
+      reply: outboundOperationalReply
+    };
+  }
+
   const analysis = await aiCaptureService.captureTransferRequest({ message: body });
   const existingRequest = await findLatestOpenWhatsappRequest(supabase, payload.From);
   const shouldCreateNewRequest =
@@ -217,6 +233,18 @@ export async function processWhatsappInboundMessage(
     analysis,
     reply
   };
+}
+
+export function isMoviltravelOutboundOperationalMessage(message: string) {
+  const normalizedMessage = normalizeTextForOperationalMessageMatch(message);
+
+  return outboundOperationalMessagePatterns.some(
+    (pattern) => normalizedMessage.startsWith(pattern) || normalizedMessage.includes(pattern)
+  );
+}
+
+function normalizeTextForOperationalMessageMatch(message: string) {
+  return message.trim().toLocaleLowerCase("es-CL").replace(/\s+/g, " ");
 }
 
 async function processDriverTravelCommand(

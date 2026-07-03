@@ -97,7 +97,7 @@ export function RequestDetailView({ requestId }: { requestId: string }) {
 
     await runRequestAction(async () => {
       setStore(await repositories.transferRequests.markReady(store, requestId));
-      setNotice("Solicitud marcada como lista para asignar.");
+      setNotice("Solicitud aprobada para asignar conductor.");
     });
   }
 
@@ -116,7 +116,7 @@ export function RequestDetailView({ requestId }: { requestId: string }) {
       const result = repositories.transferRequests.assignDriver(store, requestId, driverId);
       const resolvedResult = await result;
       setStore(resolvedResult.snapshot);
-      setNotice("Conductor asignado y WhatsApp preparados.");
+      setNotice("Traslado asignado y WhatsApp preparados.");
     });
   }
 
@@ -310,19 +310,25 @@ export function RequestDetailView({ requestId }: { requestId: string }) {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h4 className="font-medium">
-              {isAssigned ? "Asignación confirmada" : "Revisión operativa"}
+              {request.status === "ready_to_assign"
+                ? "Asignar conductor"
+                : isAssigned
+                  ? "Traslado asignado"
+                  : "Revisión operativa"}
             </h4>
             <p className="text-sm text-muted-foreground">
               {isAssigned
                 ? "El traslado ya tiene conductor asignado."
+                : request.status === "ready_to_assign"
+                  ? "Selecciona el conductor que realizará el traslado y confirma la asignación."
                 : isIncomplete
                   ? "Antes de asignar conductor, completa los datos faltantes y guarda los avances."
-                  : "Confirma que los datos mínimos están completos antes de asignar conductor."}
+                  : "Revisa que los datos del traslado estén correctos antes de asignar conductor."}
             </p>
           </div>
           {request.status === "pending_review" ? (
             <Button type="button" disabled={!completeness?.isComplete} onClick={handleMarkReady}>
-              {isSaving ? "Actualizando..." : "Marcar lista para asignar"}
+              {isSaving ? "Actualizando..." : "Aprobar para asignar"}
             </Button>
           ) : null}
         </div>
@@ -336,9 +342,9 @@ export function RequestDetailView({ requestId }: { requestId: string }) {
         {request.status === "ready_to_assign" ? (
           <div className="mt-5 space-y-4">
             <div>
-              <h5 className="font-medium">Asignar conductor</h5>
+              <h5 className="font-medium">Conductor</h5>
               <p className="text-sm text-muted-foreground">
-                Selecciona un conductor disponible para este traslado.
+                Selecciona un conductor disponible. El vehículo y patente se tomarán desde su ficha.
               </p>
             </div>
             {availableDrivers.length > 0 ? (
@@ -383,7 +389,7 @@ export function RequestDetailView({ requestId }: { requestId: string }) {
               disabled={!driverId || isSaving}
               onClick={handleAssignDriver}
             >
-              {isSaving ? "Asignando..." : "Asignar conductor"}
+              {isSaving ? "Asignando..." : "Asignar traslado"}
             </Button>
           </div>
         ) : null}
@@ -414,31 +420,37 @@ export function RequestDetailView({ requestId }: { requestId: string }) {
         ) : null}
       </section>
 
-      <section className="rounded-lg border bg-card p-5">
-        <h4 className="font-medium">WhatsApp preparados</h4>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Estos mensajes están preparados para copiar y enviar por WhatsApp. Todavía no se envían
-          automáticamente.
-        </p>
-        {orderedRequestMessages.length > 0 ? (
-          <div className="mt-3 grid gap-3 lg:grid-cols-2">
-            {orderedRequestMessages.map((message) => (
-              <MessageCard
-                key={message.id}
-                message={message}
-                copiedMessageId={copiedMessageId}
-                copyErrorMessageId={copyErrorMessageId}
-                onCopy={() => handleCopyMessage(message)}
-                onMarkSent={() => handleMarkMessageSent(message)}
-              />
-            ))}
-          </div>
-        ) : (
-          <p className="mt-2 text-sm text-muted-foreground">
-            Se prepararán automáticamente al asignar conductor.
+      {isAssigned ? (
+        <section className="rounded-lg border bg-card p-5">
+          <h4 className="font-medium">WhatsApp preparados</h4>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Copia estos mensajes para informar al pasajero/solicitante y al conductor. Todavía no se envían
+            automáticamente.
           </p>
-        )}
-      </section>
+          {orderedRequestMessages.length > 0 ? (
+            <div className="mt-3 grid gap-3 lg:grid-cols-2">
+              {orderedRequestMessages.map((message) => (
+                <MessageCard
+                  key={message.id}
+                  message={message}
+                  copiedMessageId={copiedMessageId}
+                  copyErrorMessageId={copyErrorMessageId}
+                  onCopy={() => handleCopyMessage(message)}
+                  onMarkSent={() => handleMarkMessageSent(message)}
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="mt-2 text-sm text-muted-foreground">
+              No hay mensajes preparados para esta asignación.
+            </p>
+          )}
+        </section>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          Los WhatsApp para pasajero/solicitante y conductor se prepararán después de asignar el traslado.
+        </p>
+      )}
 
       {isAssigned ? (
         <>

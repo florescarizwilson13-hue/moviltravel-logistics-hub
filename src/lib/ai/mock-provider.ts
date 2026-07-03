@@ -89,7 +89,21 @@ function extractSimpleTransferFields(message: string): CreateTransferRequestInpu
 }
 
 function extractPassengerName(message: string) {
-  return matchFirst(message, /\bpara\s+([A-ZÁÉÍÓÚÑ][\p{L}]+(?:\s+[A-ZÁÉÍÓÚÑ][\p{L}]+){0,3})/u);
+  return (
+    matchFirst(
+      message,
+      /\bnombre\s+pasajero\s+(.+?)(?=\s*(?:,|\.|;|\btel[eé]fono\b|\btelefono\b|\bfono\b|\bcelular\b|\bfecha\b|\bhora\b|$))/iu
+    ) ??
+    matchFirst(
+      message,
+      /\bel\s+pasajero\s+es\s+(.+?)(?=\s*(?:,|\.|;|\btel[eé]fono\b|\btelefono\b|\bfono\b|\bcelular\b|\bfecha\b|\bhora\b|$))/iu
+    ) ??
+    matchFirst(
+      message,
+      /(?:^|[.,;\n]\s*)pasajero\s+(.+?)(?=\s*(?:,|\.|;|\btel[eé]fono\b|\btelefono\b|\bfono\b|\bcelular\b|\bfecha\b|\bhora\b|$))/iu
+    ) ??
+    matchFirst(message, /\bpara\s+([A-ZÁÉÍÓÚÑ][\p{L}]+(?:\s+[A-ZÁÉÍÓÚÑ][\p{L}]+){0,3})/u)
+  );
 }
 
 function extractRequesterName(message: string) {

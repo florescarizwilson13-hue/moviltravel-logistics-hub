@@ -580,13 +580,99 @@ function mergeRequestWithCapturedData(
   payload: TwilioWhatsappInboundPayload
 ): CreateTransferRequestInput {
   const existingData = mapTransferRequestRowToInput(existingRequest);
-  const nextData = mergeEmptyFields(existingData, capturedData, existingRequest);
+  const nextData = applyShortPassengerNameFallback({
+    existingData,
+    message: payload.Body ?? "",
+    mergedData: mergeEmptyFields(existingData, capturedData, existingRequest)
+  });
   const withContext = withWhatsappContext(nextData, payload);
 
   return {
     ...withContext,
     notes: appendUniqueNotes(withContext.notes, capturedData.notes)
   };
+}
+
+function applyShortPassengerNameFallback(input: {
+  existingData: CreateTransferRequestInput;
+  message: string;
+  mergedData: CreateTransferRequestInput;
+}) {
+  if (input.existingData.passengerName) {
+    return input.mergedData;
+  }
+
+  const missingAfterMerge = getTransferRequestCompleteness(input.mergedData).missingFields;
+
+  if (missingAfterMerge.length !== 1 || missingAfterMerge[0] !== "passengerName") {
+    return input.mergedData;
+  }
+
+  const passengerName = extractPassengerNameFollowUp(input.message);
+
+  if (!passengerName) {
+    return input.mergedData;
+  }
+
+  return {
+    ...input.mergedData,
+    passengerName
+  };
+}
+
+function extractPassengerNameFollowUp(message: string) {
+  const explicitName = matchPassengerNameFollowUp(message);
+
+  if (explicitName) {
+    return formatPersonName(explicitName);
+  }
+
+  if (!isShortPassengerNameMessage(message)) {
+    return null;
+  }
+
+  return formatPersonName(message);
+}
+
+function matchPassengerNameFollowUp(message: string) {
+  return (
+    matchFirstText(message, /\bnombre\s+pasajero\s+(.+?)(?:[.,;\n]|$)/iu) ??
+    matchFirstText(message, /\bel\s+pasajero\s+es\s+(.+?)(?:[.,;\n]|$)/iu) ??
+    matchFirstText(message, /(?:^|[.,;\n]\s*)pasajero\s+(.+?)(?:[.,;\n]|$)/iu)
+  );
+}
+
+function isShortPassengerNameMessage(message: string) {
+  const cleanMessage = message.trim();
+
+  if (!cleanMessage || cleanMessage.length > 60) {
+    return false;
+  }
+
+  if (newTransferIntentPatterns.some((pattern) => pattern.test(cleanMessage))) {
+    return false;
+  }
+
+  if (
+    /\b(?:desde|hasta|origen|destino|empresa|solicitante|tel[eé]fono|telefono|fono|celular|fecha|hora|mañana|pasajer[oa]s?)\b/iu.test(
+      cleanMessage
+    )
+  ) {
+    return false;
+  }
+
+  if (/\+?\d[\d\s-]{6,}/.test(cleanMessage) || /\b\d{1,2}:\d{2}\b/.test(cleanMessage)) {
+    return false;
+  }
+
+  return /^[\p{L}ÁÉÍÓÚÑáéíóúñ]+(?:[\s'-]+[\p{L}ÁÉÍÓÚÑáéíóúñ]+){1,4}$/u.test(
+    cleanMessage
+  );
+}
+
+function matchFirstText(message: string, pattern: RegExp) {
+  const match = message.match(pattern);
+  return match?.[1]?.trim();
 }
 
 function mapTransferRequestRowToInput(row: TransferRequestIntakeRow): CreateTransferRequestInput {

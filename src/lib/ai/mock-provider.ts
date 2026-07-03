@@ -43,8 +43,26 @@ function extractSimpleTransferFields(message: string): CreateTransferRequestInpu
   data.originAddress = extractOrigin(message);
   data.destinationAddress = extractDestination(message);
   data.companyName = extractCompany(message);
-  data.requesterPhone = extractPhone(message, ["teléfono solicitante", "telefono solicitante", "contacto", "teléfono", "telefono"]);
-  data.passengerPhone = extractPhone(message, ["teléfono pasajero", "telefono pasajero"]);
+  data.requesterPhone = extractPhone(message, [
+    "teléfono de contacto",
+    "telefono de contacto",
+    "teléfono contacto",
+    "telefono contacto",
+    "fono contacto",
+    "teléfono solicitante",
+    "telefono solicitante",
+    "fono solicitante",
+    "contacto"
+  ]);
+  data.passengerPhone = extractPhone(message, [
+    "teléfono del pasajero",
+    "telefono del pasajero",
+    "teléfono pasajero",
+    "telefono pasajero",
+    "fono pasajero",
+    "celular pasajero",
+    "pasajero"
+  ]);
   data.requesterName = extractRequesterName(message);
 
   if (normalized.includes("origen:")) {
@@ -55,7 +73,7 @@ function extractSimpleTransferFields(message: string): CreateTransferRequestInpu
     data.destinationAddress = cleanDestinationPrefix(readValueAfterLabel(message, "destino:"));
   }
 
-  if (normalized.includes("telefono:")) {
+  if (normalized.includes("telefono:") && !data.requesterPhone && !data.passengerPhone) {
     data.requesterPhone = readValueAfterLabel(message, "telefono:");
   }
 
@@ -83,8 +101,31 @@ function extractCompany(message: string) {
 }
 
 function extractPassengerCount(normalized: string) {
-  const match = normalized.match(/\b(\d{1,2})\s*(pasajeros|personas|pax)\b/);
-  return match ? Number(match[1]) : undefined;
+  const numericMatch = normalized.match(
+    /\b(?:ser[ií]an\s+|somos\s+|para\s+)?(\d{1,2})\s*(pasajero|pasajeros|persona|personas|pax)\b/
+  );
+
+  if (numericMatch) {
+    return Number(numericMatch[1]);
+  }
+
+  const wordMatch = normalized.match(
+    /\b(un|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s*(pasajero|pasajeros|persona|personas|pax)\b/
+  );
+
+  if (wordMatch?.[1]) {
+    return numberWordToValue(wordMatch[1]);
+  }
+
+  const somosMatch = normalized.match(
+    /\bsomos\s+(un|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|\d{1,2})\b/
+  );
+
+  if (!somosMatch?.[1]) {
+    return undefined;
+  }
+
+  return /^\d+$/.test(somosMatch[1]) ? Number(somosMatch[1]) : numberWordToValue(somosMatch[1]);
 }
 
 function extractPickupTime(message: string) {
@@ -147,6 +188,25 @@ function extractPhone(message: string, labels: string[]) {
   }
 
   return undefined;
+}
+
+function numberWordToValue(value: string) {
+  const normalized = value.toLowerCase();
+  const numbers: Record<string, number> = {
+    un: 1,
+    una: 1,
+    dos: 2,
+    tres: 3,
+    cuatro: 4,
+    cinco: 5,
+    seis: 6,
+    siete: 7,
+    ocho: 8,
+    nueve: 9,
+    diez: 10
+  };
+
+  return numbers[normalized];
 }
 
 function matchFirst(message: string, pattern: RegExp) {

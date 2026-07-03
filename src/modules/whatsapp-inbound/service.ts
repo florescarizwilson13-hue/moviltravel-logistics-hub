@@ -266,7 +266,7 @@ async function processDriverTravelCommand(
   return {
     requestId: request.id,
     analysis: null,
-    reply: command.reply(eventTime)
+    reply: buildDriverCommandReply(command, eventTime, request)
   };
 }
 
@@ -354,23 +354,89 @@ function parseDriverCommand(body: string): DriverCommand | null {
       command: "2",
       eventType: "passenger_on_board",
       nextStatus: "passenger_on_board",
-      reply: (time) => `Registrado: salida con pasajero a las ${time}. Buen viaje.`
+      reply: (time) => `Registrado: saliste con el pasajero a las ${time}.`
     },
     "3": {
       command: "3",
       eventType: "completed",
       nextStatus: "completed",
-      reply: (time) => `Servicio finalizado registrado a las ${time}. Gracias.`
+      reply: (time) => `Registrado: servicio finalizado a las ${time}.`
     },
     "9": {
       command: "9",
       eventType: "incident",
       nextStatus: "incident",
-      reply: () => "Incidencia registrada. La coordinación revisará el caso."
+      reply: (time) => `Incidencia registrada a las ${time}.`
     }
   };
 
   return commands[command];
+}
+
+function buildDriverCommandReply(
+  command: DriverCommand,
+  eventTime: string,
+  request: ActiveDriverTransferRow
+) {
+  return `${command.reply(eventTime)}\n\n${buildDriverTransferSummary(request)}`;
+}
+
+function buildDriverTransferSummary(request: ActiveDriverTransferRow) {
+  return [
+    "Traslado:",
+    `Pasajero: ${request.passenger_name?.trim() || "Pasajero pendiente"}`,
+    `Origen: ${request.origin_address?.trim() || "Origen pendiente"}`,
+    `Destino: ${request.destination_address?.trim() || "Destino pendiente"}`,
+    `Horario: ${formatDriverTransferSchedule(request)}`
+  ].join("\n");
+}
+
+function formatDriverTransferSchedule(request: ActiveDriverTransferRow) {
+  const date = request.pickup_date ? formatChileanDate(request.pickup_date) : null;
+  const time = request.pickup_time?.slice(0, 5) ?? null;
+
+  if (date && time) {
+    return `${date} ${time}`;
+  }
+
+  if (request.pickup_at) {
+    return formatPickupAtForDriver(request.pickup_at);
+  }
+
+  return date ?? time ?? "Horario pendiente";
+}
+
+function formatChileanDate(date: string) {
+  const [year, month, day] = date.slice(0, 10).split("-");
+
+  if (!year || !month || !day) {
+    return date;
+  }
+
+  return `${day.padStart(2, "0")}/${month.padStart(2, "0")}/${year}`;
+}
+
+function formatPickupAtForDriver(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  const datePart = date.toLocaleDateString("es-CL", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    timeZone: "America/Santiago"
+  });
+  const timePart = date.toLocaleTimeString("es-CL", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "America/Santiago"
+  });
+
+  return `${datePart.replaceAll("-", "/")} ${timePart}`;
 }
 
 function isDriverHelpRequest(body: string) {

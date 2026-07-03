@@ -39,6 +39,15 @@ const activeDriverTripStatuses: TransferRequestStatus[] = [
   "passenger_on_board",
   "incident"
 ];
+const driverCommandHelpReply = `Comandos del viaje:
+
+1 - Llegué al origen
+2 - Salgo con pasajero
+3 - Finalicé el servicio
+9 - Reportar incidencia
+
+Envía solo el número según el estado del viaje.`;
+const driverHelpPatterns = [/^ayuda$/i, /^menu$/i, /^menú$/i, /^comandos$/i, /^\?$/];
 const newTransferIntentPatterns = [
   /\bnecesito\s+(?:un\s+)?traslado\b/i,
   /\bnuevo\s+traslado\b/i,
@@ -204,7 +213,7 @@ async function processDriverTravelCommand(
     return {
       requestId: null,
       analysis: null,
-      reply: "Comando no reconocido. Usa: 1 Llegué al punto, 2 Salgo con pasajero, 3 Finalicé servicio, 9 Incidencia."
+      reply: driverCommandHelpReply
     };
   }
 
@@ -324,6 +333,10 @@ async function findActiveTransferForDriver(
 }
 
 function parseDriverCommand(body: string): DriverCommand | null {
+  if (isDriverHelpRequest(body)) {
+    return null;
+  }
+
   const command = body.trim().match(/^[1239]\b/)?.[0] as DriverCommand["command"] | undefined;
 
   if (!command) {
@@ -358,6 +371,11 @@ function parseDriverCommand(body: string): DriverCommand | null {
   };
 
   return commands[command];
+}
+
+function isDriverHelpRequest(body: string) {
+  const message = body.trim();
+  return driverHelpPatterns.some((pattern) => pattern.test(message));
 }
 
 function normalizeWhatsappPhone(value: string | undefined) {

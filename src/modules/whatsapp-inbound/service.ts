@@ -8,6 +8,7 @@ import {
 import type {
   AiCaptureResult,
   CreateTransferRequestInput,
+  TransferRequest,
   TransferRequestStatus
 } from "@/types";
 
@@ -28,6 +29,18 @@ export type WhatsappInboundResult = {
 
 const aiCaptureService = createAiCaptureService();
 const incompleteWhatsappStatuses: TransferRequestStatus[] = ["draft", "incomplete", "pending_review"];
+const whatsappMissingFieldLabels: Partial<Record<keyof CreateTransferRequestInput, string>> = {
+  companyName: "empresa",
+  requesterName: "solicitante",
+  requesterPhone: "teléfono de contacto",
+  passengerName: "pasajero",
+  passengerPhone: "teléfono del pasajero",
+  passengerCount: "cantidad de pasajeros",
+  pickupDate: "fecha",
+  pickupTime: "hora",
+  originAddress: "origen",
+  destinationAddress: "destino"
+};
 
 type TransferRequestIntakeRow = {
   id: string;
@@ -100,17 +113,18 @@ export async function processWhatsappInboundMessage(
   }
 
   const requestId = data?.id ?? null;
+  const reply = buildWhatsappReply(request);
   await saveAiConversationAttempt({
     payload,
     requestId,
     analysis,
-    reply: analysis.assistantMessage
+    reply
   });
 
   return {
     requestId,
     analysis,
-    reply: buildWhatsappReply(request)
+    reply
   };
 }
 
@@ -374,19 +388,96 @@ function normalizeWhatsappAddress(value: string | undefined) {
 
 function buildWhatsappReply(request: ReturnType<typeof buildTransferRequestDraft>) {
   const completeness = getTransferRequestCompleteness(request);
+  const summary = buildCapturedSummary(request);
 
   if (completeness.isComplete) {
-    return "Gracias. Recibimos los datos mínimos para revisar y coordinar tu traslado.";
+    const requesterFirstName = getFirstName(request.requesterName);
+    const greeting = requesterFirstName ? `Perfecto, ${requesterFirstName}.` : "Perfecto.";
+
+    return `${greeting} Dejé registrada la solicitud${summary ? ` ${summary}` : ""}. El equipo la revisará y coordinará la asignación del conductor.`;
   }
 
-  const missingFields = completeness.missingFields.map(
-    (field) => TRANSFER_REQUEST_FIELD_LABELS[field] ?? field
-  );
-  const fields = missingFields.slice(0, 4).join(", ");
+  const missingFields = completeness.missingFields
+    .map(getWhatsappMissingFieldLabel)
+    .slice(0, 6);
+  const question = missingFields.length > 0
+    ? `Para dejarlo listo, ¿me indicas ${formatNaturalList(missingFields)}?`
+    : "Para dejarlo listo, ¿me confirmas los datos pendientes?";
 
-  return `Gracias. Para coordinar el traslado, ¿me indicas ${fields}?`;
+  if (!summary) {
+    return `Gracias. ${question}`;
+  }
+
+  return `Gracias. Tengo registrado el traslado ${summary}. ${question}`;
 }
 
 function isEmpty(value: unknown) {
   return value === undefined || value === null || value === "";
+}
+
+function getWhatsappMissingFieldLabel(field: keyof TransferRequest) {
+  return (
+    whatsappMissingFieldLabels[field as keyof CreateTransferRequestInput] ??
+    TRANSFER_REQUEST_FIELD_LABELS[field] ??
+    field
+  );
+}
+
+function buildCapturedSummary(request: ReturnType<typeof buildTransferRequestDraft>) {
+  const parts: string[] = [];
+
+  if (request.passengerName) {
+    parts.push(`para ${request.passengerName}`);
+  }
+
+  if (request.passengerCount) {
+    parts.push(`${request.passengerCount} ${request.passengerCount === 1 ? "pasajero" : "pasajeros"}`);
+  }
+
+  if (request.pickupDate && request.pickupTime) {
+    parts.push(`para ${formatWhatsappDate(request.pickupDate)} a las ${request.pickupTime}`);
+  } else if (request.pickupDate) {
+    parts.push(`para ${formatWhatsappDate(request.pickupDate)}`);
+  } else if (request.pickupTime) {
+    parts.push(`a las ${request.pickupTime}`);
+  }
+
+  if (request.originAddress && request.destinationAddress) {
+    parts.push(`desde ${request.originAddress} hasta ${request.destinationAddress}`);
+  } else if (request.originAddress) {
+    parts.push(`desde ${request.originAddress}`);
+  } else if (request.destinationAddress) {
+    parts.push(`hasta ${request.destinationAddress}`);
+  }
+
+  return parts.join(", ");
+}
+
+function formatWhatsappDate(date: string) {
+  const today = new Date();
+  const tomorrow = new Date(today);
+  tomorrow.setDate(today.getDate() + 1);
+  const isoTomorrow = tomorrow.toISOString().slice(0, 10);
+
+  if (date === isoTomorrow) {
+    return "mañana";
+  }
+
+  return date;
+}
+
+function getFirstName(name: string | null | undefined) {
+  return name?.trim().split(/\s+/)[0] ?? null;
+}
+
+function formatNaturalList(items: string[]) {
+  if (items.length <= 1) {
+    return items[0] ?? "";
+  }
+
+  if (items.length === 2) {
+    return `${items[0]} y ${items[1]}`;
+  }
+
+  return `${items.slice(0, -1).join(", ")} y ${items.at(-1)}`;
 }

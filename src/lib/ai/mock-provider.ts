@@ -93,7 +93,10 @@ function extractPassengerName(message: string) {
 }
 
 function extractRequesterName(message: string) {
-  return matchFirst(message, /\bsolicita(?:nte)?\s+([A-ZÁÉÍÓÚÑ][\p{L}]+(?:\s+[A-ZÁÉÍÓÚÑ][\p{L}]+){0,3})/iu);
+  return matchFirst(
+    message,
+    /\bsolicitante\s+(.+?)(?=\s*(?:,|\.|;|\btel[eé]fono\b|\btelefono\b|\bfono\b|\bcelular\b|\bfecha\b|\bhora\b|$))/iu
+  );
 }
 
 function extractCompany(message: string) {

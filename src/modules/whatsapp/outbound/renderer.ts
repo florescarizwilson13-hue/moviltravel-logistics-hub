@@ -1,4 +1,7 @@
-import { prepareAssignmentWhatsappMessages } from "@/modules/messaging";
+import {
+  buildDriverAssignmentBody,
+  buildPassengerAssignmentBody
+} from "@/lib/messages/whatsapp";
 import type {
   WhatsAppOutboundIntent,
   WhatsAppOutboundRenderResult,
@@ -12,20 +15,15 @@ export function renderWhatsAppOutboundMessage(
 ): WhatsAppOutboundRenderResult {
   switch (input.type) {
     case "passenger_assignment": {
-      const [passengerMessage] = prepareAssignmentWhatsappMessages(
+      const body = buildPassengerAssignmentBody(
         input.context.request,
         input.context.driver
       );
 
-      return renderText(passengerMessage?.body ?? fallbackValue);
+      return renderText(body);
     }
     case "driver_assignment": {
-      const driverMessage = prepareAssignmentWhatsappMessages(
-        input.context.request,
-        input.context.driver
-      ).find((message) => message.metadata?.audience === "driver");
-
-      return renderText(driverMessage?.body ?? fallbackValue);
+      return renderText(buildDriverAssignmentBody(input.context.request));
     }
     case "driver_trip_list":
       return renderDriverTripList(input.context.trips);

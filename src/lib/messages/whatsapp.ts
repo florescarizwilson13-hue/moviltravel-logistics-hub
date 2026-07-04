@@ -81,7 +81,7 @@ function buildWhatsappBody(request: Partial<TransferRequest>, template: MessageT
   ].join(" ");
 }
 
-function buildPassengerAssignmentBody(request: TransferRequest, driver: Driver) {
+export function buildPassengerAssignmentBody(request: TransferRequest, driver: Driver) {
   const passengerName = formatDisplayName(request.passengerName ?? request.requesterName);
 
   return compactLines([
@@ -106,7 +106,7 @@ function buildPassengerAssignmentBody(request: TransferRequest, driver: Driver) 
   ]);
 }
 
-function buildDriverAssignmentBody(request: TransferRequest) {
+export function buildDriverAssignmentBody(request: TransferRequest) {
   return compactLines([
     "🚘 Nuevo traslado asignado",
     "",

@@ -26,3 +26,48 @@ export type WhatsAppOutboundMessage = {
   body: string;
   kind?: WhatsAppMessageKind;
 };
+
+export type WhatsAppBusinessTemplateMessage = {
+  to: string;
+  templateName: string;
+  languageCode: string;
+  variables?: Record<string, string | number | null | undefined>;
+};
+
+export type WhatsAppBusinessInteractiveButton = {
+  id: string;
+  title: string;
+};
+
+export type WhatsAppBusinessInteractiveButtonsPayload = {
+  to: string;
+  body: string;
+  buttons: WhatsAppBusinessInteractiveButton[];
+  headerText?: string | null;
+  footerText?: string | null;
+};
+
+export type WhatsAppBusinessInteractiveListRow = {
+  id: string;
+  title: string;
+  description?: string | null;
+};
+
+export type WhatsAppBusinessInteractiveListSection = {
+  title?: string | null;
+  rows: WhatsAppBusinessInteractiveListRow[];
+};
+
+export type WhatsAppBusinessInteractiveList = {
+  to: string;
+  body: string;
+  buttonText: string;
+  sections: WhatsAppBusinessInteractiveListSection[];
+  headerText?: string | null;
+  footerText?: string | null;
+};
+
+export type WhatsAppBusinessLocationPayload = {
+  to: string;
+  body: string;
+};

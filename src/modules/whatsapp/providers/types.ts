@@ -71,3 +71,29 @@ export type WhatsAppBusinessLocationPayload = {
   to: string;
   body: string;
 };
+
+export type WhatsAppBusinessInboundMessage = {
+  kind: WhatsAppMessageKind;
+  from?: string | null;
+  to?: string | null;
+  body: string;
+  profileName?: string | null;
+  providerMessageId?: string | null;
+  location?: WhatsAppMessageLocation | null;
+  rawPayload?: Record<string, unknown>;
+};
+
+export type WhatsAppBusinessStatusCallback = {
+  providerMessageId?: string | null;
+  recipientId?: string | null;
+  status?: string | null;
+  timestamp?: string | null;
+  rawPayload?: Record<string, unknown>;
+};
+
+export type WhatsAppBusinessWebhookParseResult = {
+  provider: "whatsapp_business";
+  inboundMessages: WhatsAppBusinessInboundMessage[];
+  statusCallbacks: WhatsAppBusinessStatusCallback[];
+  ignoredEvents: number;
+};

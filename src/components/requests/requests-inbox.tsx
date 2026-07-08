@@ -10,7 +10,7 @@ import {
   getTransferRequestCompleteness,
   TRANSFER_REQUEST_FIELD_LABELS
 } from "@/modules/transfer-requests";
-import type { TransferRequest, TransferRequestStatus } from "@/types";
+import type { Driver, TransferRequest, TransferRequestStatus, TravelEvent } from "@/types";
 import { RequestStatusBadge } from "./request-status-badge";
 
 type StatusFilter = "all" | "incomplete" | "pending_review" | "ready_to_assign" | "assigned";
@@ -128,6 +128,15 @@ export function RequestsInbox() {
             const summary = getTransferRequestDisplaySummary(request);
             const sourceLabel = getRequestSourceLabel(request);
             const passengerCountLabel = getPassengerCountLabel(request);
+            const assignedDriver = store.drivers.find(
+              (driver) => driver.id === request.assignedDriverId
+            );
+            const latestTravelEvent = getLatestRequestTravelEvent(store.travelEvents, request.id);
+            const operationalLine = buildRequestOperationalLine({
+              request,
+              assignedDriver,
+              latestTravelEvent
+            });
             const companyLine = [
               summary.company,
               passengerCountLabel,
@@ -162,6 +171,9 @@ export function RequestsInbox() {
                       {phoneLine.join(" · ")}
                     </p>
                   ) : null}
+                  <p className="truncate text-xs font-medium text-slate-700">
+                    {operationalLine}
+                  </p>
                 </div>
                 <div className="text-muted-foreground">
                   <p>{summary.date}</p>
@@ -215,4 +227,55 @@ function getPassengerCountLabel(request: TransferRequest) {
   return `${request.passengerCount} ${
     request.passengerCount === 1 ? "pasajero" : "pasajeros"
   }`;
+}
+
+function buildRequestOperationalLine({
+  request,
+  assignedDriver,
+  latestTravelEvent
+}: {
+  request: TransferRequest;
+  assignedDriver?: Driver;
+  latestTravelEvent?: TravelEvent;
+}) {
+  const driverLabel = assignedDriver ? `Conductor: ${assignedDriver.fullName}` : "Conductor pendiente";
+  const statusLabel = `Estado: ${TRANSFER_REQUEST_STATUS_LABELS[request.status]}`;
+  const milestoneLabel = latestTravelEvent
+    ? `Último hito: ${getTravelEventLabel(latestTravelEvent.type)}`
+    : null;
+  const sourceLabel = latestTravelEvent
+    ? `Fuente: ${getTravelEventSourceLabel(latestTravelEvent.source)}`
+    : null;
+
+  return [driverLabel, statusLabel, milestoneLabel, sourceLabel].filter(Boolean).join(" · ");
+}
+
+function getLatestRequestTravelEvent(events: TravelEvent[], requestId: string) {
+  return events
+    .filter((event) => event.transferRequestId === requestId)
+    .sort((first, second) => second.createdAt.localeCompare(first.createdAt))[0];
+}
+
+function getTravelEventSourceLabel(source: TravelEvent["source"]) {
+  if (source === "whatsapp_driver") {
+    return "WhatsApp conductor";
+  }
+
+  if (source === "driver_panel") {
+    return "Panel conductor";
+  }
+
+  return "Manual";
+}
+
+function getTravelEventLabel(type: TravelEvent["type"]) {
+  const labels: Record<TravelEvent["type"], string> = {
+    driver_at_pickup: "Conductor llegó al origen",
+    passenger_on_board: "Pasajero a bordo",
+    completed: "Servicio finalizado",
+    incident: "Incidencia reportada",
+    manual_correction: "Corrección manual"
+  };
+
+  return labels[type];
 }

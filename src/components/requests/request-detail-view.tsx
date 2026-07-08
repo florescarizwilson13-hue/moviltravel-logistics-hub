@@ -610,6 +610,7 @@ function TravelTrackingHistory({
     useState<ManualTravelCorrectionStatus>("assigned");
   const [correctionNote, setCorrectionNote] = useState("");
   const steps = buildTravelTimelineSteps({ request, events, assignedDriver, messages });
+  const operationalSummary = buildTravelOperationalSummary(request, events, assignedDriver);
   const hasIncident = steps.some((step) => step.kind === "incident" && step.status === "done");
   const actions = getManualTravelActions(request.status);
   const canSubmitCorrection = correctionNote.trim().length > 0;
@@ -646,6 +647,7 @@ function TravelTrackingHistory({
         </div>
         <RequestStatusBadge status={request.status} />
       </div>
+      <TravelOperationalSummary summary={operationalSummary} />
       {actions.length > 0 ? (
         <div className="mt-4 flex flex-wrap gap-2">
           {actions.map((action) => (
@@ -734,6 +736,52 @@ function TravelTrackingHistory({
         ))}
       </div>
     </section>
+  );
+}
+
+type TravelOperationalSummary = {
+  currentStatus: string;
+  driverName: string;
+  lastMilestone: string;
+  lastSource: string;
+  lastOccurredAt: string;
+  hasManualCorrectionAfterCompletion: boolean;
+};
+
+function TravelOperationalSummary({ summary }: { summary: TravelOperationalSummary }) {
+  return (
+    <div
+      className={`mt-4 rounded-md border p-3 text-sm ${
+        summary.hasManualCorrectionAfterCompletion
+          ? "border-amber-300 bg-amber-50 text-amber-950"
+          : "border-sky-200 bg-sky-50 text-sky-950"
+      }`}
+    >
+      <p className="font-medium">
+        Estado actual: {summary.currentStatus} · Conductor: {summary.driverName} · Último hito:{" "}
+        {summary.lastMilestone} · {summary.lastOccurredAt}
+      </p>
+      <div className="mt-2 grid gap-2 md:grid-cols-4">
+        <OperationalSummaryItem label="Fuente" value={summary.lastSource} />
+        <OperationalSummaryItem label="Conductor" value={summary.driverName} />
+        <OperationalSummaryItem label="Estado" value={summary.currentStatus} />
+        <OperationalSummaryItem label="Último registro" value={summary.lastOccurredAt} />
+      </div>
+      {summary.hasManualCorrectionAfterCompletion ? (
+        <p className="mt-3 rounded border border-amber-300 bg-white px-2 py-1 text-xs font-medium text-amber-800">
+          Atención: hubo una corrección manual después de registrar el servicio como finalizado.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function OperationalSummaryItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-xs font-medium opacity-75">{label}</p>
+      <p className="mt-0.5 font-medium">{value}</p>
+    </div>
   );
 }
 
@@ -1154,6 +1202,42 @@ function buildTravelTimelineSteps({
   });
 
   return steps;
+}
+
+function buildTravelOperationalSummary(
+  request: TransferRequest,
+  events: TravelEvent[],
+  assignedDriver?: Driver
+): TravelOperationalSummary {
+  const lastEvent = getLatestTravelEvent(events);
+
+  return {
+    currentStatus: TRANSFER_REQUEST_STATUS_LABELS[request.status],
+    driverName: assignedDriver?.fullName ?? "Conductor pendiente",
+    lastMilestone: lastEvent ? getTravelEventLabel(lastEvent.type) : "Sin hitos registrados",
+    lastSource: lastEvent ? getTravelEventSourceLabel(lastEvent.source) : "Sistema",
+    lastOccurredAt: lastEvent ? formatCommunicationDate(lastEvent.createdAt) : "Pendiente",
+    hasManualCorrectionAfterCompletion: hasManualCorrectionAfterCompletion(request, events)
+  };
+}
+
+function getLatestTravelEvent(events: TravelEvent[]) {
+  return [...events].sort((first, second) => second.createdAt.localeCompare(first.createdAt))[0];
+}
+
+function hasManualCorrectionAfterCompletion(request: TransferRequest, events: TravelEvent[]) {
+  const latestCorrection = [...events]
+    .filter((event) => event.type === "manual_correction")
+    .sort((first, second) => second.createdAt.localeCompare(first.createdAt))[0];
+
+  if (!latestCorrection) {
+    return false;
+  }
+
+  const completedEvent = getTravelEventByType(events, "completed");
+  const completedAt = completedEvent?.createdAt ?? (request.status === "completed" ? request.updatedAt : null);
+
+  return Boolean(completedAt && latestCorrection.createdAt > completedAt);
 }
 
 function getManualTravelActions(status: TransferRequestStatus): ManualTravelEventAction[] {
